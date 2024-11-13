@@ -6,10 +6,28 @@ import newspaper
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 import time
+import os
+import nltk
+import ssl
+
+try:
+    _create_unverified_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+else:
+    ssl._create_default_https_context = _create_unverified_https_context
+
+# Download required NLTK data
+try:
+    nltk.data.find('punkt')
+except LookupError:
+    nltk.download('punkt')
 
 class ArticleSummarizer:
     def __init__(self):
-        self.gemini_api_key = "AIzaSyAuGIzbyFcnhofsfZ6un3DYKuUBdIIaNfA"
+        self.gemini_api_key = os.getenv('GEMINI_API_KEY')
+        if not self.gemini_api_key:
+            raise ValueError("Không tìm thấy GEMINI_API_KEY trong biến môi trường")
         genai.configure(api_key=self.gemini_api_key)
         self.model = genai.GenerativeModel('gemini-pro')
         self.headers = {
