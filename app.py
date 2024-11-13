@@ -42,6 +42,70 @@ class ArticleSummarizer:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
 
+    async def fetch_url(self, url):
+        """
+        Đọc URL bất đồng bộ sử dụng aiohttp
+        """
+        try:
+            async with aiohttp.ClientSession(headers=self.headers) as session:
+                async with session.get(url) as response:
+                    return await response.text()
+        except Exception as e:
+            raise Exception(f"Lỗi khi đọc URL {url}: {str(e)}")
+
+    def extract_content_from_html(self, html):
+        """
+        Trích xuất nội dung từ HTML sử dụng BeautifulSoup
+        """
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Loại bỏ các thẻ không cần thiết
+            for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'iframe']):
+                tag.decompose()
+            
+            # Lấy nội dung từ các thẻ p
+            paragraphs = soup.find_all('p')
+            content = ' '.join([p.get_text().strip() for p in paragraphs])
+            
+            return content
+        except Exception as e:
+            raise Exception(f"Lỗi khi parse HTML: {str(e)}")
+
+    async def extract_content_from_url(self, url):
+        """
+        Trích xuất nội dung từ URL
+        """
+        html = await self.fetch_url(url)
+        return self.extract_content_from_html(html)
+
+    async def process_urls(self, urls):
+        """
+        Xử lý nhiều URLs đồng thời
+        """
+        try:
+            start_time = time.time()
+            
+            # Đọc nội dung từ tất cả URLs đồng thời
+            contents = await asyncio.gather(
+                *[self.extract_content_from_url(url.strip()) for url in urls]
+            )
+            
+            # Kết hợp nội dung
+            combined_content = "\n\n---\n\n".join(contents)
+            
+            print(f"Thời gian đọc URLs: {time.time() - start_time:.2f} giây")
+            
+            # Xử lý với Gemini
+            result = await self.process_content(combined_content, urls)
+            
+            print(f"Tổng thời gian xử lý: {time.time() - start_time:.2f} giây")
+            
+            return result
+            
+        except Exception as e:
+            raise Exception(f"Lỗi xử lý URLs: {str(e)}")
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
@@ -77,7 +141,7 @@ class ArticleSummarizer:
             TITLE: [your title]
             SUMMARY: [your summary]
 
-            Text to process: {content[:15000]}  # Giới hạn độ dài input
+            Text to process: {content[:15000]}
             """
             
             english_result = await self.call_gemini_api(english_prompt)
