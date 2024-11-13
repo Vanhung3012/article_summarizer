@@ -4,3 +4,13 @@ aiohttp
 newspaper3k
 python-dotenv
 beautifulsoup4
+lxml
+nltk
+requests
+Pillow
+python-dateutil
+feedparser
+tldextract
+feedfinder2
+jieba3k
+tinysegmenter
