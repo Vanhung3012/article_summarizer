@@ -151,6 +151,7 @@ class ArticleSummarizer:
                     
                     expand_response = self.model.generate_content(expand_prompt)
                     en_summary = expand_response.text
+                    word_count = len(en_summary.split())  # Cập nhật lại word_count
                 
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Anh: {str(e)}")
@@ -174,6 +175,7 @@ class ArticleSummarizer:
             try:
                 vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
+                vi_word_count = len(vi_summary.split())  # Đếm số từ tiếng Việt
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Việt: {str(e)}")
             
@@ -181,7 +183,10 @@ class ArticleSummarizer:
                 'title': vi_title,
                 'content': vi_summary,
                 'english_title': en_title,
-                'english_summary': en_summary
+                'english_summary': en_summary,
+                'word_count': word_count,  # Số từ tiếng Anh
+                'vi_word_count': vi_word_count,  # Số từ tiếng Việt
+                'original_urls': urls  # Thêm URLs gốc vào kết quả
             }
             
         except Exception as e:
@@ -234,7 +239,7 @@ def main():
                 
                 if result:
                     progress_bar.progress(100, text="Hoàn thành!")
-                    st.success(f"✅ Tóm tắt thành công! (Độ dài: {result['word_count']} từ)")
+                    st.success(f"✅ Tóm tắt thành công! (Độ dài: {result['vi_word_count']} từ tiếng Việt, {result['word_count']} từ tiếng Anh)")
                     
                     st.markdown(f"## 📌 {result['title']}")
                     st.markdown("### 📄 Bản tóm tắt")
