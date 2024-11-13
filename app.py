@@ -2,32 +2,39 @@ import streamlit as st
 import google.generativeai as genai
 import aiohttp
 import asyncio
-import newspaper
+from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 import time
 import os
-import nltk
-import ssl
 
-try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
-else:
-    ssl._create_default_https_context = _create_unverified_https_context
+def check_api_key():
+    """
+    Kiểm tra API key có tồn tại và hợp lệ không
+    """
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        if not api_key:
+            st.error("⚠️ GEMINI_API_KEY chưa được cấu hình!")
+            st.stop()
+        return api_key
+    except Exception as e:
+        st.error("⚠️ GEMINI_API_KEY chưa được cấu hình trong Streamlit Secrets!")
+        st.stop()
 
-# Download required NLTK data
-try:
-    nltk.data.find('punkt')
-except LookupError:
-    nltk.download('punkt')
+def validate_url(url):
+    """
+    Kiểm tra URL có hợp lệ không
+    """
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except:
+        return False
 
 class ArticleSummarizer:
     def __init__(self):
-        self.gemini_api_key = os.getenv('GEMINI_API_KEY')
-        if not self.gemini_api_key:
-            raise ValueError("Không tìm thấy GEMINI_API_KEY trong biến môi trường")
+        self.gemini_api_key = check_api_key()
         genai.configure(api_key=self.gemini_api_key)
         self.model = genai.GenerativeModel('gemini-pro')
         self.headers = {
@@ -45,34 +52,31 @@ class ArticleSummarizer:
         except Exception as e:
             raise Exception(f"Lỗi khi đọc URL {url}: {str(e)}")
 
-    def parse_article(self, html, url):
+    def extract_content_from_html(self, html):
         """
-        Sử dụng newspaper3k để parse nội dung bài báo
+        Trích xuất nội dung từ HTML sử dụng BeautifulSoup
         """
         try:
-            article = newspaper.Article(url)
-            article.download(input_html=html)
-            article.parse()
-            return {
-                'title': article.title,
-                'text': article.text
-            }
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Loại bỏ các thẻ không cần thiết
+            for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'iframe']):
+                tag.decompose()
+            
+            # Lấy nội dung từ các thẻ p
+            paragraphs = soup.find_all('p')
+            content = ' '.join([p.get_text().strip() for p in paragraphs])
+            
+            return content
         except Exception as e:
-            raise Exception(f"Lỗi khi parse bài báo: {str(e)}")
+            raise Exception(f"Lỗi khi parse HTML: {str(e)}")
 
     async def extract_content_from_url(self, url):
         """
-        Trích xuất nội dung từ URL với tối ưu tốc độ
+        Trích xuất nội dung từ URL
         """
         html = await self.fetch_url(url)
-        with ThreadPoolExecutor() as executor:
-            article_content = await asyncio.get_event_loop().run_in_executor(
-                executor, 
-                self.parse_article, 
-                html, 
-                url
-            )
-        return article_content['text']
+        return self.extract_content_from_html(html)
 
     async def process_urls(self, urls):
         """
@@ -92,21 +96,19 @@ class ArticleSummarizer:
             print(f"Thời gian đọc URLs: {time.time() - start_time:.2f} giây")
             
             # Xử lý với Gemini
-            result = await self.process_content(combined_content)
+            result = await self.process_content(combined_content, urls)
+            result['original_urls'] = urls
             
             print(f"Tổng thời gian xử lý: {time.time() - start_time:.2f} giây")
             
-            return {
-                **result,
-                'original_urls': urls
-            }
-                
+            return result
+            
         except Exception as e:
-            raise Exception(f"Lỗi: {str(e)}")
+            raise Exception(f"Lỗi xử lý URLs: {str(e)}")
 
-    async def process_content(self, content):
+    async def process_content(self, content, urls):
         """
-        Xử lý nội dung với Gemini và đảm bảo độ dài tối thiểu
+        Xử lý nội dung với Gemini
         """
         try:
             # Bước 1: Tóm tắt và tạo tiêu đề tiếng Anh
@@ -131,10 +133,9 @@ class ArticleSummarizer:
                 en_title = english_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 en_summary = english_result.split('SUMMARY:')[1].strip()
                 
-                # Kiểm tra độ dài của bản tóm tắt (tính theo số từ)
+                # Kiểm tra độ dài của bản tóm tắt
                 word_count = len(en_summary.split())
                 
-                # Nếu dưới 500 từ, yêu cầu Gemini mở rộng nội dung
                 if word_count < 500:
                     expand_prompt = f"""
                     The current summary is too short ({word_count} words). 
@@ -150,10 +151,6 @@ class ArticleSummarizer:
                     
                     expand_response = self.model.generate_content(expand_prompt)
                     en_summary = expand_response.text
-                    
-                    # Kiểm tra lại độ dài sau khi mở rộng
-                    new_word_count = len(en_summary.split())
-                    print(f"Đã mở rộng nội dung từ {word_count} từ lên {new_word_count} từ")
                 
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Anh: {str(e)}")
@@ -161,8 +158,6 @@ class ArticleSummarizer:
             # Bước 2: Dịch sang tiếng Việt
             vietnamese_prompt = f"""
             Translate this English title and summary to Vietnamese.
-            Ensure the translation maintains the detailed and comprehensive nature of the content.
-            
             Format your response exactly as:
             TITLE: [Vietnamese title]
             SUMMARY: [Vietnamese summary]
@@ -179,11 +174,6 @@ class ArticleSummarizer:
             try:
                 vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
-                
-                # Thêm thông tin về độ dài vào kết quả
-                word_count_vi = len(vi_summary.split())
-                print(f"Độ dài bản dịch tiếng Việt: {word_count_vi} từ")
-                
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Việt: {str(e)}")
             
@@ -191,19 +181,11 @@ class ArticleSummarizer:
                 'title': vi_title,
                 'content': vi_summary,
                 'english_title': en_title,
-                'english_summary': en_summary,
-                'word_count': word_count_vi  # Thêm thông tin về số từ
+                'english_summary': en_summary
             }
             
         except Exception as e:
             raise Exception(f"Lỗi xử lý Gemini: {str(e)}")
-
-def validate_url(url):
-    try:
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
-    except:
-        return False
 
 async def process_and_update_ui(summarizer, urls):
     try:
