@@ -59,15 +59,10 @@
             """
             try:
                 soup = BeautifulSoup(html, 'html.parser')
-                
-                # Loại bỏ các thẻ không cần thiết
                 for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'iframe']):
                     tag.decompose()
-                
-                # Lấy nội dung từ các thẻ p
                 paragraphs = soup.find_all('p')
                 content = ' '.join([p.get_text().strip() for p in paragraphs])
-                
                 return content
             except Exception as e:
                 raise Exception(f"Lỗi khi parse HTML: {str(e)}")
@@ -85,24 +80,12 @@
             """
             try:
                 start_time = time.time()
-                
-                # Đọc nội dung từ tất cả URLs đồng thời
                 contents = await asyncio.gather(
                     *[self.extract_content_from_url(url.strip()) for url in urls]
                 )
-                
-                # Kết hợp nội dung
                 combined_content = "\n\n---\n\n".join(contents)
-                
-                print(f"Thời gian đọc URLs: {time.time() - start_time:.2f} giây")
-                
-                # Xử lý với Gemini
                 result = await self.process_content(combined_content, urls)
-                
-                print(f"Tổng thời gian xử lý: {time.time() - start_time:.2f} giây")
-                
                 return result
-                
             except Exception as e:
                 raise Exception(f"Lỗi xử lý URLs: {str(e)}")
 
@@ -130,7 +113,6 @@
             Xử lý nội dung với Gemini
             """
             try:
-                # Bước 1: Tóm tắt và tạo tiêu đề tiếng Anh
                 english_prompt = f"""
                 Please process this Vietnamese text:
                 1. Create a catchy and engaging title (maximum 15 words) that:
@@ -150,12 +132,10 @@
                 
                 english_result = await self.call_gemini_api(english_prompt)
                 
-                # Parse và kiểm tra độ dài tiêu đề
                 try:
                     en_title = english_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                     en_summary = english_result.split('SUMMARY:')[1].strip()
                     
-                    # Kiểm tra độ dài tiêu đề
                     title_words = len(en_title.split())
                     if title_words > 15:
                         title_prompt = f"""
@@ -168,7 +148,6 @@
                         title_response = await self.call_gemini_api(title_prompt)
                         en_title = title_response.split('TITLE:')[1].strip()
                     
-                    # Kiểm tra và mở rộng nội dung tóm tắt
                     word_count = len(en_summary.split())
                     if word_count < 500:
                         expand_prompt = f"""
@@ -188,7 +167,6 @@
                 except Exception as e:
                     raise Exception(f"Không thể parse kết quả tiếng Anh: {str(e)}")
                 
-                # Bước 2: Dịch sang tiếng Việt
                 vietnamese_prompt = f"""
                 Translate this English title and summary to Vietnamese.
                 For the title:
@@ -211,7 +189,6 @@
                     vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                     vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
                     
-                    # Kiểm tra độ dài tiêu đề tiếng Việt
                     vi_title_words = len(vi_title.split())
                     if vi_title_words > 15:
                         vi_title_prompt = f"""
