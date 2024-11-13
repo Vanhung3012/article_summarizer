@@ -2,4 +2,6 @@ streamlit
 google-generativeai
 aiohttp
 beautifulsoup4
+python-dotenv
+requests
 tenacity
