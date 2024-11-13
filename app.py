@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 import time
 import os
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 def check_api_key():
     """
@@ -56,8 +57,8 @@ class ArticleSummarizer:
         except Exception as e:
             if "429" in str(e):
                 st.warning("Đang chờ API... Vui lòng đợi trong giây lát.")
-                time.sleep(5)  # Đợi 5 giây trước khi thử lại
-                raise e  # Raise lại để retry
+                time.sleep(5)
+                raise e
             raise e
 
     async def process_content(self, content, urls):
