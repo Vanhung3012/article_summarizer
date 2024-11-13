@@ -1,16 +1,6 @@
 streamlit
 google-generativeai
 aiohttp
-newspaper3k
-python-dotenv
 beautifulsoup4
-lxml
-nltk
+python-dotenv
 requests
-Pillow
-python-dateutil
-feedparser
-tldextract
-feedfinder2
-jieba3k
-tinysegmenter
