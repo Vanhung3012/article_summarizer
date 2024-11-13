@@ -222,12 +222,55 @@ class ArticleSummarizer:
                 vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
                 
-                # Tối ưu tiêu đề tiếng Việt nếu cần
+                # Kiểm tra độ dài bản tóm tắt tiếng Việt
+                vi_word_count = len(vi_summary.split())
+                if vi_word_count < 500:
+                    expand_vi_prompt = f"""
+                    Hãy mở rộng bản tóm tắt tiếng Việt này để đạt tối thiểu 500 từ.
+                    
+                    Yêu cầu:
+                    1. Giữ nguyên ý chính và cấu trúc hiện tại
+                    2. Bổ sung thêm:
+                       - Chi tiết và ví dụ cụ thể
+                       - Phân tích sâu hơn về các điểm chính
+                       - Bối cảnh và thông tin liên quan
+                       - Tác động và ý nghĩa của vấn đề
+                    3. Đảm bảo văn phong mạch lạc, dễ đọc
+                    4. Tránh lặp lại thông tin
+                    
+                    Bản tóm tắt hiện tại ({vi_word_count} từ):
+                    {vi_summary}
+                    
+                    Format: Trả về bản tóm tắt mở rộng, không cần tiêu đề.
+                    """
+                    
+                    expanded_vi_summary = await self.call_gemini_api(expand_vi_prompt)
+                    vi_summary = expanded_vi_summary.strip()
+                    vi_word_count = len(vi_summary.split())
+                    
+                    # Kiểm tra lại sau khi mở rộng
+                    if vi_word_count < 500:
+                        detail_prompt = f"""
+                        Bản tóm tắt vẫn chưa đủ 500 từ. Hãy bổ sung thêm:
+                        1. Phân tích chuyên sâu về các khía cạnh quan trọng
+                        2. Đánh giá tác động đến các bên liên quan
+                        3. Xu hướng và dự báo trong tương lai
+                        4. Các góc nhìn đa chiều về vấn đề
+                        5. Kết luận và đề xuất giải pháp
+                        
+                        Bản hiện tại ({vi_word_count} từ):
+                        {vi_summary}
+                        """
+                        
+                        final_vi_summary = await self.call_gemini_api(detail_prompt)
+                        vi_summary = final_vi_summary.strip()
+                        vi_word_count = len(vi_summary.split())
+                
+                # Kiểm tra và tối ưu tiêu đề tiếng Việt
                 vi_title_words = len(vi_title.split())
                 if vi_title_words > 15:
                     vi_title_prompt = f"""
                     Tạo tiêu đề hấp dẫn và ngắn gọn hơn (tối đa 15 từ).
-
                     Yêu cầu:
                     1. Sử dụng từ ngữ mạnh mẽ, thu hút
                     2. Tạo sự tò mò ngay lập tức
@@ -242,7 +285,6 @@ class ArticleSummarizer:
                     vi_title_response = await self.call_gemini_api(vi_title_prompt)
                     vi_title = vi_title_response.split('TITLE:')[1].strip()
                 
-                vi_word_count = len(vi_summary.split())
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Việt: {str(e)}")
             
