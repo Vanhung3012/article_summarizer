@@ -132,13 +132,23 @@ class ArticleSummarizer:
         try:
             # Bước 1: Tóm tắt và tạo tiêu đề tiếng Anh
             english_prompt = f"""
-            Please process this Vietnamese text:
-            1. Translate to English
-            2. Create a summary (500-1000 words)
-            3. Generate a title that captures the main theme
+            Create a compelling title and summary for this Vietnamese text.
+
+            Title requirements:
+            1. Maximum 15 words
+            2. Must be attention-grabbing and engaging
+            3. Use strong action words
+            4. Create curiosity but avoid clickbait
+            5. Include key insights or numbers if relevant
+            6. Be specific and clear
             
+            Summary requirements:
+            1. 500-1000 words
+            2. Comprehensive coverage
+            3. Clear structure
+
             Format your response exactly as:
-            TITLE: [your title]
+            TITLE: [your compelling title]
             SUMMARY: [your summary]
 
             Text to process: {content[:15000]}
@@ -146,10 +156,29 @@ class ArticleSummarizer:
             
             english_result = await self.call_gemini_api(english_prompt)
             
-            # Parse kết quả tiếng Anh
             try:
                 en_title = english_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 en_summary = english_result.split('SUMMARY:')[1].strip()
+                
+                # Kiểm tra và tối ưu tiêu đề tiếng Anh
+                title_words = len(en_title.split())
+                if title_words > 15:
+                    title_prompt = f"""
+                    Create a more impactful and shorter title (max 15 words).
+                    
+                    Requirements:
+                    1. Be more concise and punchy
+                    2. Use strong action verbs
+                    3. Create immediate interest
+                    4. Focus on the most compelling angle
+                    5. Include key numbers or insights if relevant
+                    
+                    Current title ({title_words} words): {en_title}
+                    
+                    Format: TITLE: [your shorter, more compelling title]
+                    """
+                    title_response = await self.call_gemini_api(title_prompt)
+                    en_title = title_response.split('TITLE:')[1].strip()
                 
                 word_count = len(en_summary.split())
                 
@@ -166,11 +195,20 @@ class ArticleSummarizer:
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Anh: {str(e)}")
             
-            # Bước 2: Dịch sang tiếng Việt
+            # Bước 2: Dịch sang tiếng Việt với yêu cầu tiêu đề thu hút
             vietnamese_prompt = f"""
             Translate this English title and summary to Vietnamese.
+            
+            For the title:
+            1. Maximum 15 words
+            2. Must be compelling and attention-grabbing
+            3. Use strong Vietnamese action words
+            4. Create curiosity while maintaining credibility
+            5. Adapt any numbers or key insights naturally
+            6. Keep the core message but optimize for Vietnamese readers
+            
             Format your response exactly as:
-            TITLE: [Vietnamese title]
+            TITLE: [Vietnamese compelling title]
             SUMMARY: [Vietnamese summary]
 
             English text:
@@ -183,6 +221,27 @@ class ArticleSummarizer:
             try:
                 vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
+                
+                # Tối ưu tiêu đề tiếng Việt nếu cần
+                vi_title_words = len(vi_title.split())
+                if vi_title_words > 15:
+                    vi_title_prompt = f"""
+                    Tạo tiêu đề hấp dẫn và ngắn gọn hơn (tối đa 15 từ).
+
+                    Yêu cầu:
+                    1. Sử dụng từ ngữ mạnh mẽ, thu hút
+                    2. Tạo sự tò mò ngay lập tức
+                    3. Tập trung vào góc độ thú vị nhất
+                    4. Đưa số liệu hoặc insight quan trọng (nếu có)
+                    5. Ngắn gọn nhưng đầy đủ ý
+                    
+                    Tiêu đề hiện tại ({vi_title_words} từ): {vi_title}
+                    
+                    Format: TITLE: [tiêu đề mới thu hút hơn]
+                    """
+                    vi_title_response = await self.call_gemini_api(vi_title_prompt)
+                    vi_title = vi_title_response.split('TITLE:')[1].strip()
+                
                 vi_word_count = len(vi_summary.split())
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Việt: {str(e)}")
