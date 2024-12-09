@@ -251,7 +251,12 @@ class ArticleSummarizer:
                     # Kiểm tra lại sau khi mở rộng
                     if vi_word_count < 500:
                         detail_prompt = f"""
-                        Bản tóm tắt vẫn chưa đủ 500 từ. Hãy phân tích và triển khai thêm để đảm bảo hơn 500 từ
+                        Bản tóm tắt vẫn chưa đủ 500 từ. Hãy bổ sung thêm:
+                        1. Phân tích chuyên sâu về các khía cạnh quan trọng
+                        2. Đánh giá tác động đến các bên liên quan
+                        3. Xu hướng và dự báo trong tương lai
+                        4. Các góc nhìn đa chiều về vấn đề
+                        5. Kết luận và đề xuất giải pháp
                         
                         Bản hiện tại ({vi_word_count} từ):
                         {vi_summary}
@@ -355,7 +360,7 @@ def main():
                     
                     with st.expander("Xem URLs gốc"):
                         for i, url in enumerate(result['original_urls'], 1):
-                            st.markdown(f"Bài {i}: [{url}]({url})")
+                            st.markdown(f"Bài {i}: [{url}]({url})", unsafe_allow_html=True)
                             
             except Exception as e:
                 st.error(f"Có lỗi xảy ra: {str(e)}")
