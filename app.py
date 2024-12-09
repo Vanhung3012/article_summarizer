@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import time
 import os
 from tenacity import retry, stop_after_attempt, wait_exponential
+import pyperclip
 
 def check_api_key():
     """
@@ -371,13 +372,22 @@ def main():
                     st.markdown("### 📄 Bản tóm tắt")
                     st.write(result['content'])
                     
+                    # Nút sao chép nội dung tóm tắt
+                    if st.button("Sao chép nội dung tóm tắt"):
+                        pyperclip.copy(result['content'])
+                        st.success("✅ Đã sao chép nội dung tóm tắt vào clipboard!")
+                    
                     with st.expander("Xem phiên bản tiếng Anh"):
                         st.markdown(f"### {result['english_title']}")
                         st.write(result['english_summary'])
                     
+                    # Nút sao chép các URL gốc
                     with st.expander("Xem URLs gốc"):
                         for i, url in enumerate(result['original_urls'], 1):
                             st.markdown(f"Bài {i}: [{url}]({url})")
+                            if st.button(f"Sao chép URL bài {i}"):
+                                pyperclip.copy(url)
+                                st.success(f"✅ Đã sao chép URL bài {i} vào clipboard!")
                             
             except Exception as e:
                 st.error(f"Có lỗi xảy ra: {str(e)}")
