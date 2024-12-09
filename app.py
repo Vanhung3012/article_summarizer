@@ -251,7 +251,7 @@ class ArticleSummarizer:
                     # Kiểm tra lại sau khi mở rộng
                     if vi_word_count < 500:
                         detail_prompt = f"""
-                        Bản tóm tắt vẫn chưa đủ 500 từ. Hãy bổ sung, phân tích triển khai nội dung và bỏ tiêu đề các mục nhỏ
+                        Bản tóm tắt vẫn chưa đủ 500 từ. Hãy bổ sung, phân tích triển khai nội dung và bỏ đề mục
                         
                         Bản hiện tại ({vi_word_count} từ):
                         {vi_summary}
