@@ -233,10 +233,9 @@ class ArticleSummarizer:
                     2. Bổ sung thêm:
                        - Chi tiết và ví dụ cụ thể
                        - Phân tích sâu hơn về các điểm chính
-                       - Bối cảnh và thông tin liên quan
-                       - Tác động và ý nghĩa của vấn đề
                     3. Đảm bảo văn phong mạch lạc, dễ đọc
                     4. Tránh lặp lại thông tin
+                    5. Bỏ các đề mục, chỉ giữ nội dung
                     
                     Bản tóm tắt hiện tại ({vi_word_count} từ):
                     {vi_summary}
