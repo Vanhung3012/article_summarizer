@@ -125,20 +125,6 @@ class ArticleSummarizer:
                 raise e
             raise e
 
-    async def refine_summary(self, summary):
-        """
-        Chỉnh sửa nội dung tóm tắt để giống một bài báo hơn
-        """
-        prompt = f"""
-        Please refine the following summary to make it sound more like a professional article. 
-        Ensure that the language is formal, coherent, and engaging.
-
-        Current summary:
-        {summary}
-        """
-        refined_summary = await self.call_gemini_api(prompt)
-        return refined_summary
-
     async def process_content(self, content, urls):
         """
         Xử lý nội dung với Gemini
@@ -265,12 +251,7 @@ class ArticleSummarizer:
                     # Kiểm tra lại sau khi mở rộng
                     if vi_word_count < 500:
                         detail_prompt = f"""
-                        Bản tóm tắt vẫn chưa đủ 500 từ. Hãy bổ sung thêm:
-                        1. Phân tích chuyên sâu về các khía cạnh quan trọng
-                        2. Đánh giá tác động đến các bên liên quan
-                        3. Xu hướng và dự báo trong tương lai
-                        4. Các góc nhìn đa chiều về vấn đề
-                        5. Kết luận và đề xuất giải pháp
+                        Bản tóm tắt vẫn chưa đủ 500 từ. Hãy phân tích và triển khai thêm để đảm bảo hơn 500 từ
                         
                         Bản hiện tại ({vi_word_count} từ):
                         {vi_summary}
@@ -302,9 +283,6 @@ class ArticleSummarizer:
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Việt: {str(e)}")
             
-            # Bước 3: Chỉnh sửa nội dung tóm tắt
-            vi_summary = await self.refine_summary(vi_summary)
-
             return {
                 'title': vi_title,
                 'content': vi_summary,
