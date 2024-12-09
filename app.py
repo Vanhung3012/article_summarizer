@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import time
 import os
 from tenacity import retry, stop_after_attempt, wait_exponential
+import pyperclip
 
 def check_api_key():
     """
@@ -238,7 +239,7 @@ class ArticleSummarizer:
                     3. Đảm bảo văn phong mạch lạc, dễ đọc
                     4. Tránh lặp lại thông tin
                     
-                    B���n tóm tắt hiện tại ({vi_word_count} từ):
+                    Bản tóm tắt hiện tại ({vi_word_count} từ):
                     {vi_summary}
                     
                     Format: Trả về bản tóm tắt mở rộng, không cần tiêu đề.
@@ -345,18 +346,23 @@ def main():
                     progress_bar.progress(100, text="Hoàn thành!")
                     st.success(f"✅ Tóm tắt thành công! (Độ dài: {result['vi_word_count']} từ tiếng Việt, {result['word_count']} từ tiếng Anh)")
                     
-                    st.markdown(f"## 📌 {result['title']}")
-                    st.markdown("### 📄 Bản tóm tắt")
-                    st.write(result['content'])
+                    # Hiển thị nội dung tóm tắt mà không có đề mục
+                    formatted_summary = result['content'].replace('.', '', 1)  # Loại bỏ dấu chấm đầu tiên
+                    st.write(formatted_summary)  # Sử dụng st.write để hiển thị nội dung mà không có đề mục
+
+                    # Nút sao chép nội dung tóm tắt
+                    if st.button("Sao chép nội dung tóm tắt"):
+                        pyperclip.copy(formatted_summary)
+                        st.success("✅ Đã sao chép nội dung tóm tắt vào clipboard!")
+
+                    # Hiển thị phiên bản tiếng Anh mà không có đề mục
+                    english_summary = result['english_summary'].replace('.', '', 1)  # Loại bỏ dấu chấm đầu tiên
+                    st.write(english_summary)  # Sử dụng st.write để hiển thị nội dung mà không có đề mục
+
+                    # Hiển thị các URL gốc mà không có đề mục
+                    for i, url in enumerate(result['original_urls'], 1):
+                        st.write(f"Bài {i}: [{url}]({url})", unsafe_allow_html=True)  # Hiển thị các URL liên tiếp
                     
-                    with st.expander("Xem phiên bản tiếng Anh"):
-                        st.markdown(f"### {result['english_title']}")
-                        st.write(result['english_summary'])
-                    
-                    with st.expander("Xem URLs gốc"):
-                        for i, url in enumerate(result['original_urls'], 1):
-                            st.write(f"Bài {i}: [{url}]({url})", unsafe_allow_html=True)
-                            
             except Exception as e:
                 st.error(f"Có lỗi xảy ra: {str(e)}")
             finally:
