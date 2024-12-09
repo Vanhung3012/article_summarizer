@@ -125,6 +125,20 @@ class ArticleSummarizer:
                 raise e
             raise e
 
+    async def refine_summary(self, summary):
+        """
+        Chỉnh sửa nội dung tóm tắt để giống một bài báo hơn
+        """
+        prompt = f"""
+        Please refine the following summary to make it sound more like a professional article. 
+        Ensure that the language is formal, coherent, and engaging.
+
+        Current summary:
+        {summary}
+        """
+        refined_summary = await self.call_gemini_api(prompt)
+        return refined_summary
+
     async def process_content(self, content, urls):
         """
         Xử lý nội dung với Gemini
@@ -288,6 +302,9 @@ class ArticleSummarizer:
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Việt: {str(e)}")
             
+            # Bước 3: Chỉnh sửa nội dung tóm tắt
+            vi_summary = await self.refine_summary(vi_summary)
+
             return {
                 'title': vi_title,
                 'content': vi_summary,
