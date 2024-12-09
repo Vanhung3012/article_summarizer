@@ -132,7 +132,7 @@ class ArticleSummarizer:
         try:
             # Bước 1: Tóm tắt và tạo tiêu đề tiếng Anh
             english_prompt = f"""
-            Create a compelling title and summary for this Vietnamese text.
+            Create a structured article with clear sections for this Vietnamese text.
 
             Title requirements:
             1. Maximum 15 words
@@ -145,11 +145,15 @@ class ArticleSummarizer:
             Summary requirements:
             1. 500-1000 words
             2. Comprehensive coverage
-            3. Clear structure
+            3. Clear structure with sections like:
+               - Giới thiệu
+               - Các góc nhìn đa chiều về vấn đề
+               - Kết luận và đề xuất giải pháp
+               - Xu hướng và dự báo trong tương lai
 
             Format your response exactly as:
             TITLE: [your compelling title]
-            SUMMARY: [your summary]
+            SUMMARY: [your structured article]
 
             Text to process: {content[:15000]}
             """
@@ -209,7 +213,7 @@ class ArticleSummarizer:
             
             Format your response exactly as:
             TITLE: [Vietnamese compelling title]
-            SUMMARY: [Vietnamese summary]
+            SUMMARY: [Vietnamese structured article]
 
             English text:
             TITLE: {en_title}
@@ -222,75 +226,32 @@ class ArticleSummarizer:
                 vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
                 
-                # Kiểm tra độ dài bản tóm tắt tiếng Việt
-                vi_word_count = len(vi_summary.split())
-                if vi_word_count < 500:
-                    expand_vi_prompt = f"""
-                    Hãy mở rộng bản tóm tắt tiếng Việt này để đạt tối thiểu 500 từ.
-                    
-                    Yêu cầu:
-                    1. Giữ nguyên ý chính và cấu trúc hiện tại
-                    2. Bổ sung thêm:
-                       - Chi tiết và ví dụ cụ thể
-                       - Phân tích sâu hơn về các điểm chính
-                    3. Đảm bảo văn phong mạch lạc, dễ đọc
-                    4. Tránh lặp lại thông tin
-                    5. Bỏ các đề mục, chỉ giữ nội dung
-                    
-                    Bản tóm tắt hiện tại ({vi_word_count} từ):
-                    {vi_summary}
-                    
-                    Format: Trả về bản tóm tắt mở rộng, không cần tiêu đề.
-                    """
-                    
-                    expanded_vi_summary = await self.call_gemini_api(expand_vi_prompt)
-                    vi_summary = expanded_vi_summary.strip()
-                    vi_word_count = len(vi_summary.split())
-                    
-                    # Kiểm tra lại sau khi mở rộng
-                    if vi_word_count < 500:
-                        detail_prompt = f"""
-                        Bản tóm tắt vẫn chưa đủ 500 từ. Hãy bổ sung, phân tích triển khai nội dung và bỏ đề mục
-                        
-                        Bản hiện tại ({vi_word_count} từ):
-                        {vi_summary}
-                        """
-                        
-                        final_vi_summary = await self.call_gemini_api(detail_prompt)
-                        vi_summary = final_vi_summary.strip()
-                        vi_word_count = len(vi_summary.split())
+                # Bỏ các đề mục không cần thiết
+                vi_summary = vi_summary.replace("###", "").replace("##", "").replace("#", "").strip()
                 
-                # Kiểm tra và tối ưu tiêu đề tiếng Việt
-                vi_title_words = len(vi_title.split())
-                if vi_title_words > 15:
-                    vi_title_prompt = f"""
-                    Tạo tiêu đề hấp dẫn và ngắn gọn hơn (tối đa 15 từ).
-                    Yêu cầu:
-                    1. Sử dụng từ ngữ mạnh mẽ, thu hút
-                    2. Tạo sự tò mò ngay lập tức
-                    3. Tập trung vào góc độ thú vị nhất
-                    4. Đưa số liệu hoặc insight quan trọng (nếu có)
-                    5. Ngắn gọn nhưng đầy đủ ý
-                    
-                    Tiêu đề hiện tại ({vi_title_words} từ): {vi_title}
-                    
-                    Format: TITLE: [tiêu đề mới thu hút hơn]
-                    """
-                    vi_title_response = await self.call_gemini_api(vi_title_prompt)
-                    vi_title = vi_title_response.split('TITLE:')[1].strip()
+                # Yêu cầu AI viết lại nội dung như một bài báo thực sự
+                rewrite_prompt = f"""
+                Please rewrite the following summary to make it sound like a professional article. 
+                Ensure that the language is formal, coherent, and engaging.
+                Do not include any headings, subheadings, or bullet points.
+
+                Current summary:
+                {vi_summary}
+                """
+                refined_summary = await self.call_gemini_api(rewrite_prompt)
+                
+                return {
+                    'title': vi_title,
+                    'content': refined_summary,
+                    'english_title': en_title,
+                    'english_summary': en_summary,
+                    'word_count': word_count,
+                    'vi_word_count': len(refined_summary.split()),
+                    'original_urls': urls
+                }
                 
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Việt: {str(e)}")
-            
-            return {
-                'title': vi_title,
-                'content': vi_summary,
-                'english_title': en_title,
-                'english_summary': en_summary,
-                'word_count': word_count,
-                'vi_word_count': vi_word_count,
-                'original_urls': urls
-            }
             
         except Exception as e:
             raise Exception(f"Lỗi xử lý Gemini: {str(e)}")
