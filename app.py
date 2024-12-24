@@ -151,14 +151,17 @@ class ArticleSummarizer:
             
             # Phân tích kết quả tiếng Việt
             try:
-                vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
-                vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
-                
-                return {
-                    'title': vi_title,
-                    'content': vi_summary,
-                    'original_urls': urls
-                }
+                if 'TITLE:' in vietnamese_result and 'SUMMARY:' in vietnamese_result:
+                    vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
+                    vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
+                    
+                    return {
+                        'title': vi_title,
+                        'content': vi_summary,
+                        'original_urls': urls
+                    }
+                else:
+                    raise Exception("Kết quả không chứa TITLE hoặc SUMMARY.")
                 
             except Exception as e:
                 raise Exception(f"Không thể parse kết quả tiếng Việt: {str(e)}")
