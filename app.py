@@ -154,7 +154,14 @@ class ArticleSummarizer:
             # Kiểm tra độ dài tóm tắt
             word_count = len(english_result.split())
             if word_count < 500:
-                raise Exception("Tóm tắt không đủ 500 từ.")
+                # Nếu tóm tắt không đủ 500 từ, yêu cầu Gemini viết thêm
+                expand_prompt = f"""
+                The current summary is too short ({word_count} words). 
+                Please expand this summary to be over 500 words using the following text:
+                {content[:15000]}
+                """
+                english_result = await self.call_gemini_api(expand_prompt)
+                word_count = len(english_result.split())
             
             # Bước 2: Dịch sang tiếng Việt với yêu cầu tiêu đề thu hút dưới 15 từ
             vietnamese_prompt = f"""
