@@ -154,9 +154,17 @@ class ArticleSummarizer:
             
             # Phân tích kết quả tiếng Việt
             try:
-                if 'TITLE:' in vietnamese_result and 'SUMMARY:' in vietnamese_result:
-                    vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
-                    vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
+                # Kiểm tra xem kết quả có chứa nội dung hay không
+                if not vietnamese_result.strip():
+                    raise Exception("Kết quả từ Gemini trống rỗng.")
+                
+                # Tìm kiếm TITLE và SUMMARY
+                title_start = vietnamese_result.find('TITLE:')
+                summary_start = vietnamese_result.find('SUMMARY:')
+                
+                if title_start != -1 and summary_start != -1:
+                    vi_title = vietnamese_result[title_start + len('TITLE:'):summary_start].strip()
+                    vi_summary = vietnamese_result[summary_start + len('SUMMARY:'):].strip()
                     
                     return {
                         'title': vi_title,
