@@ -139,12 +139,12 @@ class ArticleSummarizer:
         try:
             # Bước 1: Tóm tắt và tạo tiêu đề tiếng Anh
             english_prompt = f"""
-            Create a detailed article with clear sections for this Vietnamese text.
+            Create a detailed article with clear sections and paragraphs for this Vietnamese text.
             Ensure the summary is over 500 words.
-            Do not include any headings, subheadings, or bullet points.
+            Each paragraph should be distinct and not written continuously.
 
             Format your response exactly as:
-            SUMMARY: [your detailed article]
+            SUMMARY: [your detailed article with clear paragraphs]
 
             Text to process: {content[:15000]}
             """
@@ -158,6 +158,7 @@ class ArticleSummarizer:
                 The current summary is too short ({word_count} words). 
                 Please expand this summary to be over 500 words using the following text:
                 {content[:15000]}
+                Ensure that the summary is divided into clear paragraphs.
                 """
                 english_result = await self.call_gemini_api(expand_prompt)
                 word_count = len(english_result.split())
@@ -166,10 +167,11 @@ class ArticleSummarizer:
             vietnamese_prompt = f"""
             Translate this English summary to Vietnamese.
             Create a compelling title with less than 15 words.
+            Ensure that the summary is divided into clear paragraphs.
 
             Format your response exactly as:
             TITLE: [Vietnamese compelling title]
-            SUMMARY: [Vietnamese detailed article]
+            SUMMARY: [Vietnamese detailed article with clear paragraphs]
 
             English text:
             SUMMARY: {english_result}
@@ -185,6 +187,7 @@ class ArticleSummarizer:
                 The current Vietnamese summary is too short ({vi_word_count} words). 
                 Please expand this summary to be over 500 words using the following text:
                 {english_result}
+                Ensure that the summary is divided into clear paragraphs.
                 """
                 vietnamese_result = await self.call_gemini_api(expand_vn_prompt)
                 vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
