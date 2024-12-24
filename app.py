@@ -141,6 +141,7 @@ class ArticleSummarizer:
             english_prompt = f"""
             Create a structured article with clear sections for this Vietnamese text.
             Ensure the summary is over 500 words.
+            Do not include any headings, subheadings, or bullet points.
 
             Format your response exactly as:
             SUMMARY: [your structured article]
