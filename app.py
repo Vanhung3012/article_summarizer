@@ -140,9 +140,9 @@ class ArticleSummarizer:
             # Bước 1: Tóm tắt và tạo tiêu đề tiếng Anh
             english_prompt = f"""
             Create a structured article with clear sections for this Vietnamese text.
+            Ensure the summary is over 500 words.
 
             Format your response exactly as:
-            TITLE: [your compelling title]
             SUMMARY: [your structured article]
 
             Text to process: {content[:15000]}
@@ -150,36 +150,22 @@ class ArticleSummarizer:
             
             english_result = await self.call_gemini_api(english_prompt)
             
-            try:
-                en_title = english_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
-                en_summary = english_result.split('SUMMARY:')[1].strip()
-                
-                word_count = len(en_summary.split())
-                
-                if word_count < 500:
-                    expand_prompt = f"""
-                    The current summary is too short ({word_count} words). 
-                    Please expand this summary to be over 500 words.
-                    Current summary: {en_summary}
-                    """
-                    
-                    en_summary = await self.call_gemini_api(expand_prompt)
-                    word_count = len(en_summary.split())
-                
-            except Exception as e:
-                raise Exception(f"Không thể parse kết quả tiếng Anh: {str(e)}")
+            # Kiểm tra độ dài tóm tắt
+            word_count = len(english_result.split())
+            if word_count < 500:
+                raise Exception("Tóm tắt không đủ 500 từ.")
             
-            # Bước 2: Dịch sang tiếng Việt với yêu cầu tiêu đề thu hút
+            # Bước 2: Dịch sang tiếng Việt với yêu cầu tiêu đề thu hút dưới 15 từ
             vietnamese_prompt = f"""
-            Translate this English title and summary to Vietnamese.
-            
+            Translate this English summary to Vietnamese.
+            Create a compelling title with less than 15 words.
+
             Format your response exactly as:
             TITLE: [Vietnamese compelling title]
             SUMMARY: [Vietnamese structured article]
 
             English text:
-            TITLE: {en_title}
-            SUMMARY: {en_summary}
+            SUMMARY: {english_result}
             """
             
             vietnamese_result = await self.call_gemini_api(vietnamese_prompt)
@@ -188,27 +174,10 @@ class ArticleSummarizer:
                 vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
                 
-                # Bỏ các đề mục không cần thiết
-                vi_summary = vi_summary.replace("###", "").replace("##", "").replace("#", "").strip()
-                
-                # Yêu cầu AI viết lại nội dung như một bài báo thực sự
-                rewrite_prompt = f"""
-                Please rewrite the following summary to make it sound like a professional article. 
-                Ensure that the language is formal, coherent, and engaging.
-                Do not include any headings, subheadings, or bullet points.
-
-                Current summary:
-                {vi_summary}
-                """
-                refined_summary = await self.call_gemini_api(rewrite_prompt)
-                
                 return {
                     'title': vi_title,
-                    'content': refined_summary,
-                    'english_title': en_title,
-                    'english_summary': en_summary,
+                    'content': vi_summary,
                     'word_count': word_count,
-                    'vi_word_count': len(refined_summary.split()),
                     'original_urls': urls
                 }
                 
@@ -280,15 +249,11 @@ async def main():
                 
                 if result:
                     progress_bar.progress(100, text="Hoàn thành!")
-                    st.success(f"✅ Tóm tắt thành công! (Độ dài: {result['vi_word_count']} từ tiếng Việt, {result['word_count']} từ tiếng Anh)")
+                    st.success(f"✅ Tóm tắt thành công! (Độ dài: {result['word_count']} từ tiếng Việt)")
                     
                     st.markdown(f"## 📌 {result['title']}")
                     st.markdown("### 📄 Bản tóm tắt")
                     st.write(result['content'])
-                    
-                    with st.expander("Xem phiên bản tiếng Anh"):
-                        st.markdown(f"### {result['english_title']}")
-                        st.write(result['english_summary'])
                     
                     with st.expander("Xem URLs gốc"):
                         for i, url in enumerate(result['original_urls'], 1):
