@@ -240,7 +240,7 @@ async def process_and_update_ui(summarizer, urls):
     except Exception as e:
         raise e
 
-def main():
+async def main():
     st.set_page_config(page_title="Ứng dụng Tóm tắt Văn bản", page_icon="📝", layout="wide")
     
     st.title("📝 Ứng dụng Tóm tắt Nhiều Bài Báo")
@@ -276,7 +276,7 @@ def main():
             progress_bar = st.progress(0, text=progress_text)
             
             try:
-                result = asyncio.run(process_and_update_ui(st.session_state.summarizer, urls))
+                result = await process_and_update_ui(st.session_state.summarizer, urls)
                 
                 if result:
                     progress_bar.progress(100, text="Hoàn thành!")
