@@ -149,6 +149,9 @@ class ArticleSummarizer:
             
             vietnamese_result = await self.call_gemini_api(vietnamese_prompt)
             
+            # Ghi lại kết quả để kiểm tra
+            print("Kết quả từ Gemini:", vietnamese_result)  # Ghi lại kết quả để kiểm tra
+            
             # Phân tích kết quả tiếng Việt
             try:
                 if 'TITLE:' in vietnamese_result and 'SUMMARY:' in vietnamese_result:
