@@ -88,8 +88,15 @@ class ArticleSummarizer:
             
             # Đọc nội dung từ tất cả URLs đồng thời
             contents = await asyncio.gather(
-                *[self.extract_content_from_url(url.strip()) for url in urls]
+                *[self.extract_content_from_url(url.strip()) for url in urls],
+                return_exceptions=True  # Thêm để xử lý ngoại lệ
             )
+            
+            # Lọc ra các lỗi từ kết quả
+            contents = [content for content in contents if not isinstance(content, Exception)]
+            
+            if not contents:
+                raise Exception("Tất cả các URL đều không hợp lệ hoặc có lỗi.")
             
             # Kết hợp nội dung
             combined_content = "\n\n---\n\n".join(contents)
@@ -134,23 +141,6 @@ class ArticleSummarizer:
             english_prompt = f"""
             Create a structured article with clear sections for this Vietnamese text.
 
-            Title requirements:
-            1. Maximum 15 words
-            2. Must be attention-grabbing and engaging
-            3. Use strong action words
-            4. Create curiosity but avoid clickbait
-            5. Include key insights or numbers if relevant
-            6. Be specific and clear
-            
-            Summary requirements:
-            1. 500-1000 words
-            2. Comprehensive coverage
-            3. Clear structure with sections like:
-               - Giới thiệu
-               - Các góc nhìn đa chiều về vấn đề
-               - Kết luận và đề xuất giải pháp
-               - Xu hướng và dự báo trong tương lai
-
             Format your response exactly as:
             TITLE: [your compelling title]
             SUMMARY: [your structured article]
@@ -164,32 +154,12 @@ class ArticleSummarizer:
                 en_title = english_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 en_summary = english_result.split('SUMMARY:')[1].strip()
                 
-                # Kiểm tra và tối ưu tiêu đề tiếng Anh
-                title_words = len(en_title.split())
-                if title_words > 15:
-                    title_prompt = f"""
-                    Create a more impactful and shorter title (max 15 words).
-                    
-                    Requirements:
-                    1. Be more concise and punchy
-                    2. Use strong action verbs
-                    3. Create immediate interest
-                    4. Focus on the most compelling angle
-                    5. Include key numbers or insights if relevant
-                    
-                    Current title ({title_words} words): {en_title}
-                    
-                    Format: TITLE: [your shorter, more compelling title]
-                    """
-                    title_response = await self.call_gemini_api(title_prompt)
-                    en_title = title_response.split('TITLE:')[1].strip()
-                
                 word_count = len(en_summary.split())
                 
                 if word_count < 500:
                     expand_prompt = f"""
                     The current summary is too short ({word_count} words). 
-                    Please expand this summary to be between 500-1000 words.
+                    Please expand this summary to be over 500 words.
                     Current summary: {en_summary}
                     """
                     
@@ -202,14 +172,6 @@ class ArticleSummarizer:
             # Bước 2: Dịch sang tiếng Việt với yêu cầu tiêu đề thu hút
             vietnamese_prompt = f"""
             Translate this English title and summary to Vietnamese.
-            
-            For the title:
-            1. Maximum 15 words
-            2. Must be compelling and attention-grabbing
-            3. Use strong Vietnamese action words
-            4. Create curiosity while maintaining credibility
-            5. Adapt any numbers or key insights naturally
-            6. Keep the core message but optimize for Vietnamese readers
             
             Format your response exactly as:
             TITLE: [Vietnamese compelling title]
@@ -338,4 +300,4 @@ def main():
                 progress_bar.empty()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())  # Sử dụng asyncio.run cho hàm main
