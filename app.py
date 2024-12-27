@@ -88,15 +88,8 @@ class ArticleSummarizer:
             
             # Đọc nội dung từ tất cả URLs đồng thời
             contents = await asyncio.gather(
-                *[self.extract_content_from_url(url.strip()) for url in urls],
-                return_exceptions=True  # Thêm để xử lý ngoại lệ
+                *[self.extract_content_from_url(url.strip()) for url in urls]
             )
-            
-            # Lọc ra các lỗi từ kết quả
-            contents = [content for content in contents if not isinstance(content, Exception)]
-            
-            if not contents:
-                raise Exception("Tất cả các URL đều không hợp lệ hoặc có lỗi.")
             
             # Kết hợp nội dung
             combined_content = "\n\n---\n\n".join(contents)
@@ -140,10 +133,26 @@ class ArticleSummarizer:
             # Bước 1: Tóm tắt và tạo tiêu đề tiếng Anh
             english_prompt = f"""
             Create a structured article with clear sections for this Vietnamese text.
-            Ensure the summary is over 500 words.
-            Do not include any headings, subheadings, or bullet points.
+
+            Title requirements:
+            1. Maximum 15 words
+            2. Must be attention-grabbing and engaging
+            3. Use strong action words
+            4. Create curiosity but avoid clickbait
+            5. Include key insights or numbers if relevant
+            6. Be specific and clear
+            
+            Summary requirements:
+            1. 500-1000 words
+            2. Comprehensive coverage
+            3. Clear structure with sections like:
+               - Giới thiệu
+               - Các góc nhìn đa chiều về vấn đề
+               - Kết luận và đề xuất giải pháp
+               - Xu hướng và dự báo trong tương lai
 
             Format your response exactly as:
+            TITLE: [your compelling title]
             SUMMARY: [your structured article]
 
             Text to process: {content[:15000]}
@@ -151,22 +160,64 @@ class ArticleSummarizer:
             
             english_result = await self.call_gemini_api(english_prompt)
             
-            # Kiểm tra độ dài tóm tắt
-            word_count = len(english_result.split())
-            if word_count < 500:
-                raise Exception("Tóm tắt không đủ 500 từ.")
+            try:
+                en_title = english_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
+                en_summary = english_result.split('SUMMARY:')[1].strip()
+                
+                # Kiểm tra và tối ưu tiêu đề tiếng Anh
+                title_words = len(en_title.split())
+                if title_words > 15:
+                    title_prompt = f"""
+                    Create a more impactful and shorter title (max 15 words).
+                    
+                    Requirements:
+                    1. Be more concise and punchy
+                    2. Use strong action verbs
+                    3. Create immediate interest
+                    4. Focus on the most compelling angle
+                    5. Include key numbers or insights if relevant
+                    
+                    Current title ({title_words} words): {en_title}
+                    
+                    Format: TITLE: [your shorter, more compelling title]
+                    """
+                    title_response = await self.call_gemini_api(title_prompt)
+                    en_title = title_response.split('TITLE:')[1].strip()
+                
+                word_count = len(en_summary.split())
+                
+                if word_count < 500:
+                    expand_prompt = f"""
+                    The current summary is too short ({word_count} words). 
+                    Please expand this summary to be between 500-1000 words.
+                    Current summary: {en_summary}
+                    """
+                    
+                    en_summary = await self.call_gemini_api(expand_prompt)
+                    word_count = len(en_summary.split())
+                
+            except Exception as e:
+                raise Exception(f"Không thể parse kết quả tiếng Anh: {str(e)}")
             
-            # Bước 2: Dịch sang tiếng Việt với yêu cầu tiêu đề thu hút dưới 15 từ
+            # Bước 2: Dịch sang tiếng Việt với yêu cầu tiêu đề thu hút
             vietnamese_prompt = f"""
-            Translate this English summary to Vietnamese.
-            Create a compelling title with less than 15 words.
-
+            Translate this English title and summary to Vietnamese.
+            
+            For the title:
+            1. Maximum 15 words
+            2. Must be compelling and attention-grabbing
+            3. Use strong Vietnamese action words
+            4. Create curiosity while maintaining credibility
+            5. Adapt any numbers or key insights naturally
+            6. Keep the core message but optimize for Vietnamese readers
+            
             Format your response exactly as:
             TITLE: [Vietnamese compelling title]
             SUMMARY: [Vietnamese structured article]
 
             English text:
-            SUMMARY: {english_result}
+            TITLE: {en_title}
+            SUMMARY: {en_summary}
             """
             
             vietnamese_result = await self.call_gemini_api(vietnamese_prompt)
@@ -175,10 +226,27 @@ class ArticleSummarizer:
                 vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
                 vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
                 
+                # Bỏ các đề mục không cần thiết
+                vi_summary = vi_summary.replace("###", "").replace("##", "").replace("#", "").strip()
+                
+                # Yêu cầu AI viết lại nội dung như một bài báo thực sự
+                rewrite_prompt = f"""
+                Please rewrite the following summary to make it sound like a professional article. 
+                Ensure that the language is formal, coherent, and engaging.
+                Do not include any headings, subheadings, or bullet points.
+
+                Current summary:
+                {vi_summary}
+                """
+                refined_summary = await self.call_gemini_api(rewrite_prompt)
+                
                 return {
                     'title': vi_title,
-                    'content': vi_summary,
+                    'content': refined_summary,
+                    'english_title': en_title,
+                    'english_summary': en_summary,
                     'word_count': word_count,
+                    'vi_word_count': len(refined_summary.split()),
                     'original_urls': urls
                 }
                 
@@ -210,7 +278,7 @@ async def process_and_update_ui(summarizer, urls):
     except Exception as e:
         raise e
 
-async def main():
+def main():
     st.set_page_config(page_title="Ứng dụng Tóm tắt Văn bản", page_icon="📝", layout="wide")
     
     st.title("📝 Ứng dụng Tóm tắt Nhiều Bài Báo")
@@ -246,15 +314,19 @@ async def main():
             progress_bar = st.progress(0, text=progress_text)
             
             try:
-                result = await process_and_update_ui(st.session_state.summarizer, urls)
+                result = asyncio.run(process_and_update_ui(st.session_state.summarizer, urls))
                 
                 if result:
                     progress_bar.progress(100, text="Hoàn thành!")
-                    st.success(f"✅ Tóm tắt thành công! (Độ dài: {result['word_count']} từ tiếng Việt)")
+                    st.success(f"✅ Tóm tắt thành công! (Độ dài: {result['vi_word_count']} từ tiếng Việt, {result['word_count']} từ tiếng Anh)")
                     
                     st.markdown(f"## 📌 {result['title']}")
                     st.markdown("### 📄 Bản tóm tắt")
                     st.write(result['content'])
+                    
+                    with st.expander("Xem phiên bản tiếng Anh"):
+                        st.markdown(f"### {result['english_title']}")
+                        st.write(result['english_summary'])
                     
                     with st.expander("Xem URLs gốc"):
                         for i, url in enumerate(result['original_urls'], 1):
@@ -266,4 +338,4 @@ async def main():
                 progress_bar.empty()
 
 if __name__ == "__main__":
-    asyncio.run(main())  # Sử dụng asyncio.run cho hàm main
+    main()
