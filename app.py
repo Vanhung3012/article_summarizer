@@ -139,12 +139,12 @@ class ArticleSummarizer:
         try:
             # Bước 1: Tóm tắt và tạo tiêu đề tiếng Anh
             english_prompt = f"""
-            Create a detailed article with clear sections and paragraphs for this Vietnamese text.
+            Create a structured article with clear sections for this Vietnamese text.
             Ensure the summary is over 500 words.
-            Each paragraph should be distinct and not written continuously.
+            Do not include any headings, subheadings, or bullet points.
 
             Format your response exactly as:
-            SUMMARY: [your detailed article with clear paragraphs]
+            SUMMARY: [your structured article]
 
             Text to process: {content[:15000]}
             """
@@ -153,25 +153,17 @@ class ArticleSummarizer:
             
             # Kiểm tra độ dài tóm tắt
             word_count = len(english_result.split())
-            while word_count < 500:  # Thêm vòng lặp để yêu cầu thêm nội dung nếu cần
-                expand_prompt = f"""
-                The current summary is too short ({word_count} words). 
-                Please expand this summary to be over 500 words using the following text:
-                {content[:15000]}
-                Ensure that the summary is divided into clear paragraphs.
-                """
-                english_result = await self.call_gemini_api(expand_prompt)
-                word_count = len(english_result.split())
+            if word_count < 500:
+                raise Exception("Tóm tắt không đủ 500 từ.")
             
             # Bước 2: Dịch sang tiếng Việt với yêu cầu tiêu đề thu hút dưới 15 từ
             vietnamese_prompt = f"""
             Translate this English summary to Vietnamese.
             Create a compelling title with less than 15 words.
-            Ensure that the summary is divided into clear paragraphs.
 
             Format your response exactly as:
             TITLE: [Vietnamese compelling title]
-            SUMMARY: [Vietnamese detailed article with clear paragraphs]
+            SUMMARY: [Vietnamese structured article]
 
             English text:
             SUMMARY: {english_result}
@@ -179,27 +171,14 @@ class ArticleSummarizer:
             
             vietnamese_result = await self.call_gemini_api(vietnamese_prompt)
             
-            # Kiểm tra số từ của kết quả tiếng Việt
-            vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
-            vi_word_count = len(vi_summary.split())
-            while vi_word_count < 500:  # Kiểm tra số từ sau khi dịch
-                expand_vn_prompt = f"""
-                The current Vietnamese summary is too short ({vi_word_count} words). 
-                Please expand this summary to be over 500 words using the following text:
-                {english_result}
-                Ensure that the summary is divided into clear paragraphs.
-                """
-                vietnamese_result = await self.call_gemini_api(expand_vn_prompt)
-                vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
-                vi_word_count = len(vi_summary.split())
-            
             try:
                 vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
+                vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
                 
                 return {
                     'title': vi_title,
                     'content': vi_summary,
-                    'word_count': vi_word_count,
+                    'word_count': word_count,
                     'original_urls': urls
                 }
                 
