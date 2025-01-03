@@ -183,7 +183,8 @@ class NewsArticleGenerator:
             if 'TITLE:' not in result or 'ARTICLE:' not in result:
                 raise Exception("Kết quả không hợp lệ từ API.")
             
-            title = result.split('TITLE ')[1].split('ARTICLE:')[0].strip()
+            # Cập nhật để loại bỏ dấu ":" trong tiêu đề
+            title = result.split('TITLE ')[1].split('ARTICLE:')[0].strip().replace(':', '')  # Loại bỏ dấu ":"
             content = result.split('ARTICLE:')[1].strip()
             
             # Kiểm tra độ dài tiêu đề
