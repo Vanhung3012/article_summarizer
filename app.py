@@ -121,7 +121,7 @@ class NewsArticleGenerator:
         except Exception as e:
             if "429" in str(e):
                 st.warning("Đang chờ API... Vui lòng đợi trong giây lát")
-                await asyncio.sleep(5)
+                time.sleep(5)
                 raise e
             raise e
 
@@ -179,49 +179,48 @@ class NewsArticleGenerator:
             # Gọi API để tạo bài báo
             result = await self.call_gemini_api(analysis_prompt)
             
-            # Kiểm tra sự tồn tại của TITLE và ARTICLE
-            if 'TITLE:' not in result or 'ARTICLE:' not in result:
-                raise Exception("Kết quả không hợp lệ từ API.")
-            
-            # Cập nhật để loại bỏ dấu ":" trong tiêu đề
-            title = result.split('TITLE ')[1].split('ARTICLE:')[0].strip().replace(':', '')  # Loại bỏ dấu ":"
-            content = result.split('ARTICLE:')[1].strip()
-            
-            # Kiểm tra độ dài tiêu đề
-            if len(title.split()) > 15:
-                optimize_title_prompt = f"""
-                Tối ưu tiêu đề sau để ngắn gọn hơn (tối đa 15 từ) nhưng vẫn giữ được ý chính:
-                {title}
+            try:
+                title = result.split('TITLE:')[1].split('ARTICLE:')[0].strip()
+                content = result.split('ARTICLE:')[1].strip()
+                
+                # Kiểm tra độ dài tiêu đề
+                if len(title.split()) > 15:
+                    optimize_title_prompt = f"""
+                    Tối ưu tiêu đề sau để ngắn gọn hơn (tối đa 15 từ) nhưng vẫn giữ được ý chính:
+                    {title}
 
-                Yêu cầu:
-                - Rút gọn nhưng không mất ý nghĩa
-                - Vẫn phải thu hút, ấn tượng
-                - Dùng từ ngữ chính xác, súc tích
-                - Phù hợp phong cách báo chí
+                    Yêu cầu:
+                    - Rút gọn nhưng không mất ý nghĩa
+                    - Vẫn phải thu hút, ấn tượng
+                    - Dùng từ ngữ chính xác, súc tích
+                    - Phù hợp phong cách báo chí
 
-                Format: TITLE: [tiêu đề tối ưu]
-                """
-                title_result = await self.call_gemini_api(optimize_title_prompt)
-                title = title_result.split('TITLE:')[1].strip()
-            
-            # Kiểm tra độ dài nội dung
-            word_count = len(content.split())
-            if word_count < 800:
-                expand_prompt = f"""
-                Mở rộng nội dung bài báo sau để đạt 800-1000 từ.
-                Thêm chi tiết, phân tích sâu hơn nhưng vẫn giữ được tính mạch lạc và phong cách ban đầu.
+                    Format: TITLE: [tiêu đề tối ưu]
+                    """
+                    title_result = await self.call_gemini_api(optimize_title_prompt)
+                    title = title_result.split('TITLE:')[1].strip()
+                
+                # Kiểm tra độ dài nội dung
+                word_count = len(content.split())
+                if word_count < 800:
+                    expand_prompt = f"""
+                    Mở rộng nội dung bài báo sau để đạt 800-1000 từ.
+                    Thêm chi tiết, phân tích sâu hơn nhưng vẫn giữ được tính mạch lạc và phong cách ban đầu.
 
-                Bài báo hiện tại:
-                {content}
-                """
-                content = await self.call_gemini_api(expand_prompt)
-            
-            return {
-                'title': title,
-                'content': content,
-                'word_count': len(content.split()),
-                'sources': [a['url'] for a in articles]
-            }
+                    Bài báo hiện tại:
+                    {content}
+                    """
+                    content = await self.call_gemini_api(expand_prompt)
+                
+                return {
+                    'title': title,
+                    'content': content,
+                    'word_count': len(content.split()),
+                    'sources': [a['url'] for a in articles]
+                }
+                
+            except Exception as e:
+                raise Exception(f"Lỗi khi xử lý kết quả: {str(e)}")
             
         except Exception as e:
             raise Exception(f"Lỗi khi tạo bài báo: {str(e)}")
