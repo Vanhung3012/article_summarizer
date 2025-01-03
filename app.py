@@ -3,20 +3,18 @@ import google.generativeai as genai
 import aiohttp
 import asyncio
 from bs4 import BeautifulSoup
-from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 import time
-import os
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 def check_api_key():
     """
-    Kiểm tra API key có tồn tại và hợp lệ không
+    Kiểm tra API key Gemini
     """
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
         if not api_key:
-            st.error("⚠️ GEMINI_API_KEY chưa được cấu hình!")
+            st.error("⚠️ Vui lòng cấu hình GEMINI_API_KEY!")
             st.stop()
         return api_key
     except Exception as e:
@@ -25,7 +23,7 @@ def check_api_key():
 
 def validate_url(url):
     """
-    Kiểm tra URL có hợp lệ không
+    Kiểm tra URL hợp lệ
     """
     try:
         result = urlparse(url)
@@ -33,7 +31,7 @@ def validate_url(url):
     except:
         return False
 
-class ArticleSummarizer:
+class NewsArticleGenerator:
     def __init__(self):
         self.gemini_api_key = check_api_key()
         genai.configure(api_key=self.gemini_api_key)
@@ -44,7 +42,7 @@ class ArticleSummarizer:
 
     async def fetch_url(self, url):
         """
-        Đọc URL bất đồng bộ sử dụng aiohttp
+        Đọc nội dung từ URL
         """
         try:
             async with aiohttp.ClientSession(headers=self.headers) as session:
@@ -53,58 +51,60 @@ class ArticleSummarizer:
         except Exception as e:
             raise Exception(f"Lỗi khi đọc URL {url}: {str(e)}")
 
-    def extract_content_from_html(self, html):
+    def extract_content(self, html):
         """
-        Trích xuất nội dung từ HTML sử dụng BeautifulSoup
+        Trích xuất nội dung từ HTML
         """
         try:
             soup = BeautifulSoup(html, 'html.parser')
             
-            # Loại bỏ các thẻ không cần thiết
-            for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'iframe']):
+            # Loại bỏ các phần không cần thiết
+            for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'iframe', 'aside']):
                 tag.decompose()
             
-            # Lấy nội dung từ các thẻ p
-            paragraphs = soup.find_all('p')
-            content = ' '.join([p.get_text().strip() for p in paragraphs])
+            # Lấy tiêu đề
+            title = ""
+            if soup.find('h1'):
+                title = soup.find('h1').get_text().strip()
+            elif soup.find('title'):
+                title = soup.find('title').get_text().strip()
             
-            return content
-        except Exception as e:
-            raise Exception(f"Lỗi khi parse HTML: {str(e)}")
-
-    async def extract_content_from_url(self, url):
-        """
-        Trích xuất nội dung từ URL
-        """
-        html = await self.fetch_url(url)
-        return self.extract_content_from_html(html)
-
-    async def process_urls(self, urls):
-        """
-        Xử lý nhiều URLs đồng thời
-        """
-        try:
-            start_time = time.time()
+            # Lấy nội dung chính
+            article_tags = soup.find_all(['article', 'main', 'div'], class_=['content', 'article', 'post'])
+            content = ""
             
-            # Đọc nội dung từ tất cả URLs đồng thời
-            contents = await asyncio.gather(
-                *[self.extract_content_from_url(url.strip()) for url in urls]
-            )
+            if article_tags:
+                for tag in article_tags:
+                    paragraphs = tag.find_all('p')
+                    content += ' '.join([p.get_text().strip() for p in paragraphs])
+            else:
+                # Nếu không tìm thấy thẻ article, lấy tất cả thẻ p
+                paragraphs = soup.find_all('p')
+                content = ' '.join([p.get_text().strip() for p in paragraphs])
             
-            # Kết hợp nội dung
-            combined_content = "\n\n---\n\n".join(contents)
-            
-            print(f"Thời gian đọc URLs: {time.time() - start_time:.2f} giây")
-            
-            # Xử lý với Gemini
-            result = await self.process_content(combined_content, urls)
-            
-            print(f"Tổng thời gian xử lý: {time.time() - start_time:.2f} giây")
-            
-            return result
+            return {
+                'title': title,
+                'content': content
+            }
             
         except Exception as e:
-            raise Exception(f"Lỗi xử lý URLs: {str(e)}")
+            raise Exception(f"Lỗi khi xử lý HTML: {str(e)}")
+
+    async def scrape_articles(self, urls):
+        """
+        Thu thập nội dung từ nhiều URLs
+        """
+        articles = []
+        for url in urls:
+            if url.strip():
+                html = await self.fetch_url(url)
+                content = self.extract_content(html)
+                articles.append({
+                    'url': url,
+                    'title': content['title'],
+                    'content': content['content']
+                })
+        return articles
 
     @retry(
         stop=stop_after_attempt(3),
@@ -113,229 +113,209 @@ class ArticleSummarizer:
     )
     async def call_gemini_api(self, prompt):
         """
-        Gọi Gemini API với retry và rate limit
+        Gọi Gemini API với retry
         """
         try:
             response = self.model.generate_content(prompt)
             return response.text
         except Exception as e:
             if "429" in str(e):
-                st.warning("Đang chờ API... Vui lòng đợi trong giây lát.")
+                st.warning("Đang chờ API... Vui lòng đợi trong giây lát")
                 time.sleep(5)
                 raise e
             raise e
 
-    async def process_content(self, content, urls):
+    async def generate_article(self, articles):
         """
-        Xử lý nội dung với Gemini
+        Tạo bài báo từ nhiều nguồn
         """
         try:
-            # Bước 1: Tóm tắt và tạo tiêu đề tiếng Anh
-            english_prompt = f"""
-            Create a structured article with clear sections for this Vietnamese text.
+            # Tổng hợp nội dung từ các bài báo
+            combined_content = "\n\n---\n\n".join(
+                [f"Tiêu đề: {a['title']}\nNội dung: {a['content']}" for a in articles]
+            )
 
-            Title requirements:
-            1. Maximum 15 words
-            2. Must be attention-grabbing and engaging
-            3. Use strong action words
-            4. Create curiosity but avoid clickbait
-            5. Include key insights or numbers if relevant
-            6. Be specific and clear
-            
-            Summary requirements:
-            1. 500-1000 words
-            2. Comprehensive coverage
-            3. Clear structure with sections like:
-               - Giới thiệu
-               - Các góc nhìn đa chiều về vấn đề
-               - Kết luận và đề xuất giải pháp
-               - Xu hướng và dự báo trong tương lai
+            # Prompt để phân tích và tổng hợp thành bài báo mới
+            analysis_prompt = f"""
+            Phân tích và tổng hợp thành một bài báo mới từ các nguồn sau:
 
-            Format your response exactly as:
-            TITLE: [your compelling title]
-            SUMMARY: [your structured article]
+            {combined_content}
 
-            Text to process: {content[:15000]}
+            Yêu cầu:
+
+            1. Tiêu đề bài báo:
+               - Tối đa 15 từ
+               - Thu hút, tạo ấn tượng mạnh
+               - Phản ánh chính xác nội dung chính
+               - Sử dụng từ ngữ báo chí chuẩn mực
+               - Tránh giật gân, câu view
+
+            2. Cấu trúc bài viết:
+               - Tóm tắt ý chính trong đoạn mở đầu (3-4 câu)
+               - Triển khai chi tiết theo logic rõ ràng
+               - Dẫn nguồn và trích dẫn khi cần
+               - Phân tích, đánh giá khách quan
+               - Kết luận súc tích, đầy đủ
+
+            3. Nội dung:
+               - Tổng hợp thông tin từ nhiều nguồn
+               - Đảm bảo tính chính xác
+               - Cung cấp góc nhìn đa chiều
+               - Thêm số liệu, dữ liệu cụ thể
+               - Độ dài 800-1000 từ
+
+            4. Ngôn ngữ:
+               - Trong sáng, dễ hiểu
+               - Phong cách báo chí chuyên nghiệp
+               - Khách quan, trung lập
+               - Tránh từ ngữ cảm xúc, thiên kiến
+               - Chọn lọc từ ngữ phù hợp văn phong
+
+            Format phản hồi:
+            TITLE: [tiêu đề bài báo]
+            ARTICLE: [nội dung bài báo]
             """
-            
-            english_result = await self.call_gemini_api(english_prompt)
+
+            # Gọi API để tạo bài báo
+            result = await self.call_gemini_api(analysis_prompt)
             
             try:
-                en_title = english_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
-                en_summary = english_result.split('SUMMARY:')[1].strip()
+                title = result.split('TITLE:')[1].split('ARTICLE:')[0].strip()
+                content = result.split('ARTICLE:')[1].strip()
                 
-                # Kiểm tra và tối ưu tiêu đề tiếng Anh
-                title_words = len(en_title.split())
-                if title_words > 15:
-                    title_prompt = f"""
-                    Create a more impactful and shorter title (max 15 words).
-                    
-                    Requirements:
-                    1. Be more concise and punchy
-                    2. Use strong action verbs
-                    3. Create immediate interest
-                    4. Focus on the most compelling angle
-                    5. Include key numbers or insights if relevant
-                    
-                    Current title ({title_words} words): {en_title}
-                    
-                    Format: TITLE: [your shorter, more compelling title]
+                # Kiểm tra độ dài tiêu đề
+                if len(title.split()) > 15:
+                    optimize_title_prompt = f"""
+                    Tối ưu tiêu đề sau để ngắn gọn hơn (tối đa 15 từ) nhưng vẫn giữ được ý chính:
+                    {title}
+
+                    Yêu cầu:
+                    - Rút gọn nhưng không mất ý nghĩa
+                    - Vẫn phải thu hút, ấn tượng
+                    - Dùng từ ngữ chính xác, súc tích
+                    - Phù hợp phong cách báo chí
+
+                    Format: TITLE: [tiêu đề tối ưu]
                     """
-                    title_response = await self.call_gemini_api(title_prompt)
-                    en_title = title_response.split('TITLE:')[1].strip()
+                    title_result = await self.call_gemini_api(optimize_title_prompt)
+                    title = title_result.split('TITLE:')[1].strip()
                 
-                word_count = len(en_summary.split())
-                
-                if word_count < 500:
+                # Kiểm tra độ dài nội dung
+                word_count = len(content.split())
+                if word_count < 800:
                     expand_prompt = f"""
-                    The current summary is too short ({word_count} words). 
-                    Please expand this summary to be between 500-1000 words.
-                    Current summary: {en_summary}
+                    Mở rộng nội dung bài báo sau để đạt 800-1000 từ.
+                    Thêm chi tiết, phân tích sâu hơn nhưng vẫn giữ được tính mạch lạc và phong cách ban đầu.
+
+                    Bài báo hiện tại:
+                    {content}
                     """
-                    
-                    en_summary = await self.call_gemini_api(expand_prompt)
-                    word_count = len(en_summary.split())
-                
-            except Exception as e:
-                raise Exception(f"Không thể parse kết quả tiếng Anh: {str(e)}")
-            
-            # Bước 2: Dịch sang tiếng Việt với yêu cầu tiêu đề thu hút
-            vietnamese_prompt = f"""
-            Translate this English title and summary to Vietnamese.
-            
-            For the title:
-            1. Maximum 15 words
-            2. Must be compelling and attention-grabbing
-            3. Use strong Vietnamese action words
-            4. Create curiosity while maintaining credibility
-            5. Adapt any numbers or key insights naturally
-            6. Keep the core message but optimize for Vietnamese readers
-            
-            Format your response exactly as:
-            TITLE: [Vietnamese compelling title]
-            SUMMARY: [Vietnamese structured article]
-
-            English text:
-            TITLE: {en_title}
-            SUMMARY: {en_summary}
-            """
-            
-            vietnamese_result = await self.call_gemini_api(vietnamese_prompt)
-            
-            try:
-                vi_title = vietnamese_result.split('TITLE:')[1].split('SUMMARY:')[0].strip()
-                vi_summary = vietnamese_result.split('SUMMARY:')[1].strip()
-                
-                # Bỏ các đề mục không cần thiết
-                vi_summary = vi_summary.replace("###", "").replace("##", "").replace("#", "").strip()
-                
-                # Yêu cầu AI viết lại nội dung như một bài báo thực sự
-                rewrite_prompt = f"""
-                Please rewrite the following summary to make it sound like a professional article. 
-                Ensure that the language is formal, coherent, and engaging.
-                Do not include any headings, subheadings, or bullet points.
-
-                Current summary:
-                {vi_summary}
-                """
-                refined_summary = await self.call_gemini_api(rewrite_prompt)
+                    content = await self.call_gemini_api(expand_prompt)
                 
                 return {
-                    'title': vi_title,
-                    'content': refined_summary,
-                    'english_title': en_title,
-                    'english_summary': en_summary,
-                    'word_count': word_count,
-                    'vi_word_count': len(refined_summary.split()),
-                    'original_urls': urls
+                    'title': title,
+                    'content': content,
+                    'word_count': len(content.split()),
+                    'sources': [a['url'] for a in articles]
                 }
                 
             except Exception as e:
-                raise Exception(f"Không thể parse kết quả tiếng Việt: {str(e)}")
+                raise Exception(f"Lỗi khi xử lý kết quả: {str(e)}")
             
         except Exception as e:
-            raise Exception(f"Lỗi xử lý Gemini: {str(e)}")
-
-    async def refine_summary(self, summary):
-        """
-        Chỉnh sửa nội dung tóm tắt để giống một bài báo hơn
-        """
-        prompt = f"""
-        Please refine the following summary to make it sound more like a professional article. 
-        Ensure that the language is formal, coherent, and engaging.
-        Do not include any headings, subheadings, or bullet points.
-
-        Current summary:
-        {summary}
-        """
-        refined_summary = await self.call_gemini_api(prompt)
-        return refined_summary
-
-async def process_and_update_ui(summarizer, urls):
-    try:
-        result = await summarizer.process_urls(urls)
-        return result
-    except Exception as e:
-        raise e
+            raise Exception(f"Lỗi khi tạo bài báo: {str(e)}")
 
 def main():
-    st.set_page_config(page_title="Ứng dụng Tóm tắt Văn bản", page_icon="📝", layout="wide")
+    st.set_page_config(
+        page_title="Tổng Hợp Tin Tức", 
+        page_icon="📰",
+        layout="wide"
+    )
     
-    st.title("📝 Ứng dụng Tóm tắt Nhiều Bài Báo")
+    st.title("📰 Ứng Dụng Tổng Hợp Tin Tức")
+    st.markdown("""
+    Ứng dụng này giúp tổng hợp và viết lại nội dung từ nhiều bài báo thành một bài báo mới, 
+    đảm bảo tính chuyên nghiệp và chất lượng.
+    """)
     st.markdown("---")
 
-    if 'summarizer' not in st.session_state:
-        st.session_state.summarizer = ArticleSummarizer()
+    if 'generator' not in st.session_state:
+        st.session_state.generator = NewsArticleGenerator()
 
     with st.container():
-        st.subheader("🔗 Nhập URL các bài báo")
+        st.subheader("🔗 Nhập URLs Bài Báo")
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            url1 = st.text_input("URL bài báo 1", key="url1")
-        with col2:
-            url2 = st.text_input("URL bài báo 2", key="url2")
-        with col3:
-            url3 = st.text_input("URL bài báo 3", key="url3")
+        # Tạo 3 cột để nhập URL
+        cols = st.columns(3)
+        urls = []
+        for i, col in enumerate(cols, 1):
+            with col:
+                url = st.text_input(
+                    f"URL bài báo {i}",
+                    key=f"url{i}",
+                    placeholder="https://..."
+                )
+                urls.append(url)
         
-        urls = [url1, url2, url3]
-        
-        if st.button("Tóm tắt", type="primary"):
-            if not all(urls):
-                st.warning("Vui lòng nhập đủ 3 URLs!")
+        # Nút tạo bài báo
+        if st.button("Tạo Bài Báo", type="primary"):
+            # Kiểm tra URLs
+            valid_urls = [url for url in urls if url.strip()]
+            if len(valid_urls) == 0:
+                st.warning("⚠️ Vui lòng nhập ít nhất một URL!")
                 return
-            
-            invalid_urls = [url for url in urls if not validate_url(url)]
+                
+            invalid_urls = [url for url in valid_urls if not validate_url(url)]
             if invalid_urls:
-                st.error(f"Các URLs sau không hợp lệ: {', '.join(invalid_urls)}")
+                st.error(f"❌ URL không hợp lệ: {', '.join(invalid_urls)}")
                 return
             
-            progress_text = "Đang xử lý..."
-            progress_bar = st.progress(0, text=progress_text)
+            # Hiển thị thanh tiến trình
+            progress = st.progress(0)
+            status = st.empty()
             
             try:
-                result = asyncio.run(process_and_update_ui(st.session_state.summarizer, urls))
-                
-                if result:
-                    progress_bar.progress(100, text="Hoàn thành!")
-                    st.success(f"✅ Tóm tắt thành công! (Độ dài: {result['vi_word_count']} từ tiếng Việt, {result['word_count']} từ tiếng Anh)")
+                with st.spinner("Đang xử lý..."):
+                    # Thu thập nội dung
+                    status.text("Đang đọc nội dung từ các URLs...")
+                    progress.progress(25)
                     
-                    st.markdown(f"## 📌 {result['title']}")
-                    st.markdown("### 📄 Bản tóm tắt")
-                    st.write(result['content'])
+                    articles = asyncio.run(
+                        st.session_state.generator.scrape_articles(valid_urls)
+                    )
                     
-                    with st.expander("Xem phiên bản tiếng Anh"):
-                        st.markdown(f"### {result['english_title']}")
-                        st.write(result['english_summary'])
+                    if not articles:
+                        st.error("❌ Không thể đọc nội dung từ các URLs!")
+                        return
                     
-                    with st.expander("Xem URLs gốc"):
-                        for i, url in enumerate(result['original_urls'], 1):
-                            st.write(f"Bài {i}: [{url}]({url})", unsafe_allow_html=True)
-                            
+                    # Tạo bài báo
+                    status.text("Đang tổng hợp và viết bài...")
+                    progress.progress(50)
+                    
+                    result = asyncio.run(
+                        st.session_state.generator.generate_article(articles)
+                    )
+                    
+                    if result:
+                        progress.progress(100)
+                        status.empty()
+                        
+                        # Hiển thị kết quả
+                        st.success(f"✅ Đã tạo bài báo thành công! ({result['word_count']} từ)")
+                        
+                        st.markdown(f"## 📌 {result['title']}")
+                        st.markdown("### 📄 Nội dung")
+                        st.write(result['content'])
+                        
+                        with st.expander("🔍 Xem nguồn bài viết"):
+                            for i, url in enumerate(result['sources'], 1):
+                                st.write(f"{i}. [{url}]({url})")
+                        
             except Exception as e:
-                st.error(f"Có lỗi xảy ra: {str(e)}")
+                st.error(f"❌ Có lỗi xảy ra: {str(e)}")
             finally:
-                progress_bar.empty()
+                progress.empty()
+                status.empty()
 
 if __name__ == "__main__":
     main()
