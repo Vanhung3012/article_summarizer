@@ -72,15 +72,11 @@ class NewsArticleGenerator:
             # Lấy nội dung chính
             article_tags = soup.find_all(['article', 'main', 'div'], class_=['content', 'article', 'post'])
             content = ""
-            images = []  # Thêm danh sách để lưu trữ URL hình ảnh
             
             if article_tags:
                 for tag in article_tags:
                     paragraphs = tag.find_all('p')
                     content += ' '.join([p.get_text().strip() for p in paragraphs])
-                    # Lấy tất cả các hình ảnh trong thẻ article
-                    img_tags = tag.find_all('img')
-                    images.extend([img['src'] for img in img_tags if 'src' in img.attrs])
             else:
                 # Nếu không tìm thấy thẻ article, lấy tất cả thẻ p
                 paragraphs = soup.find_all('p')
@@ -88,8 +84,7 @@ class NewsArticleGenerator:
             
             return {
                 'title': title,
-                'content': content,
-                'images': images  # Trả về danh sách hình ảnh
+                'content': content
             }
             
         except Exception as e:
@@ -126,7 +121,7 @@ class NewsArticleGenerator:
         except Exception as e:
             if "429" in str(e):
                 st.warning("Đang chờ API... Vui lòng đợi trong giây lát")
-                time.sleep(5)
+                await asyncio.sleep(5)
                 raise e
             raise e
 
@@ -139,12 +134,7 @@ class NewsArticleGenerator:
             combined_content = "\n\n---\n\n".join(
                 [f"Tiêu đề: {a['title']}\nNội dung: {a['content']}" for a in articles]
             )
-            
-            # Lấy danh sách hình ảnh từ các bài báo
-            combined_images = []
-            for a in articles:
-                combined_images.extend(a['images'])
-            
+
             # Prompt để phân tích và tổng hợp thành bài báo mới
             analysis_prompt = f"""
             Phân tích và tổng hợp thành một bài báo mới từ các nguồn sau:
@@ -184,56 +174,53 @@ class NewsArticleGenerator:
             Format phản hồi:
             TITLE: [tiêu đề bài báo]
             ARTICLE: [nội dung bài báo]
-            IMAGES: [danh sách hình ảnh]
             """
 
             # Gọi API để tạo bài báo
             result = await self.call_gemini_api(analysis_prompt)
             
-            try:
-                title = result.split('TITLE:')[1].split('ARTICLE:')[0].strip()
-                content = result.split('ARTICLE:')[1].strip()
-                images = result.split('IMAGES:')[1].strip().split(',')  # Lấy danh sách hình ảnh
-                
-                # Kiểm tra độ dài tiêu đề
-                if len(title.split()) > 15:
-                    optimize_title_prompt = f"""
-                    Tối ưu tiêu đề sau để ngắn gọn hơn (tối đa 15 từ) nhưng vẫn giữ được ý chính:
-                    {title}
+            # Kiểm tra sự tồn tại của TITLE và ARTICLE
+            if 'TITLE:' not in result or 'ARTICLE:' not in result:
+                raise Exception("Kết quả không hợp lệ từ API.")
+            
+            title = result.split('TITLE ')[1].split('ARTICLE:')[0].strip()
+            content = result.split('ARTICLE:')[1].strip()
+            
+            # Kiểm tra độ dài tiêu đề
+            if len(title.split()) > 15:
+                optimize_title_prompt = f"""
+                Tối ưu tiêu đề sau để ngắn gọn hơn (tối đa 15 từ) nhưng vẫn giữ được ý chính:
+                {title}
 
-                    Yêu cầu:
-                    - Rút gọn nhưng không mất ý nghĩa
-                    - Vẫn phải thu hút, ấn tượng
-                    - Dùng từ ngữ chính xác, súc tích
-                    - Phù hợp phong cách báo chí
+                Yêu cầu:
+                - Rút gọn nhưng không mất ý nghĩa
+                - Vẫn phải thu hút, ấn tượng
+                - Dùng từ ngữ chính xác, súc tích
+                - Phù hợp phong cách báo chí
 
-                    Format: TITLE: [tiêu đề tối ưu]
-                    """
-                    title_result = await self.call_gemini_api(optimize_title_prompt)
-                    title = title_result.split('TITLE:')[1].strip()
-                
-                # Kiểm tra độ dài nội dung
-                word_count = len(content.split())
-                if word_count < 800:
-                    expand_prompt = f"""
-                    Mở rộng nội dung bài báo sau để đạt 800-1000 từ.
-                    Thêm chi tiết, phân tích sâu hơn nhưng vẫn giữ được tính mạch lạc và phong cách ban đầu.
+                Format: TITLE: [tiêu đề tối ưu]
+                """
+                title_result = await self.call_gemini_api(optimize_title_prompt)
+                title = title_result.split('TITLE:')[1].strip()
+            
+            # Kiểm tra độ dài nội dung
+            word_count = len(content.split())
+            if word_count < 800:
+                expand_prompt = f"""
+                Mở rộng nội dung bài báo sau để đạt 800-1000 từ.
+                Thêm chi tiết, phân tích sâu hơn nhưng vẫn giữ được tính mạch lạc và phong cách ban đầu.
 
-                    Bài báo hiện tại:
-                    {content}
-                    """
-                    content = await self.call_gemini_api(expand_prompt)
-                
-                return {
-                    'title': title,
-                    'content': content,
-                    'word_count': len(content.split()),
-                    'sources': [a['url'] for a in articles],
-                    'images': images  # Trả về danh sách hình ảnh
-                }
-                
-            except Exception as e:
-                raise Exception(f"Lỗi khi xử lý kết quả: {str(e)}")
+                Bài báo hiện tại:
+                {content}
+                """
+                content = await self.call_gemini_api(expand_prompt)
+            
+            return {
+                'title': title,
+                'content': content,
+                'word_count': len(content.split()),
+                'sources': [a['url'] for a in articles]
+            }
             
         except Exception as e:
             raise Exception(f"Lỗi khi tạo bài báo: {str(e)}")
