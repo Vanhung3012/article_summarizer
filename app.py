@@ -90,6 +90,21 @@ class NewsArticleGenerator:
         except Exception as e:
             raise Exception(f"Lỗi khi xử lý HTML: {str(e)}")
 
+    def extract_images(self, html):
+        """
+        Trích xuất các URL hình ảnh từ HTML
+        """
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            images = []
+            for img in soup.find_all('img'):
+                img_url = img.get('src')
+                if img_url:
+                    images.append(img_url)
+            return images
+        except Exception as e:
+            raise Exception(f"Lỗi khi trích xuất hình ảnh: {str(e)}")
+
     async def scrape_articles(self, urls):
         """
         Thu thập nội dung từ nhiều URLs
@@ -99,10 +114,12 @@ class NewsArticleGenerator:
             if url.strip():
                 html = await self.fetch_url(url)
                 content = self.extract_content(html)
+                images = self.extract_images(html)  # Lấy hình ảnh từ HTML
                 articles.append({
                     'url': url,
                     'title': content['title'],
-                    'content': content['content']
+                    'content': content['content'],
+                    'images': images  # Lưu trữ URL hình ảnh
                 })
         return articles
 
