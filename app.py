@@ -8,6 +8,9 @@ import time
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 def check_api_key():
+    """
+    Kiểm tra API key Gemini
+    """
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
         if not api_key:
@@ -19,6 +22,9 @@ def check_api_key():
         st.stop()
 
 def validate_url(url):
+    """
+    Kiểm tra URL hợp lệ
+    """
     try:
         result = urlparse(url)
         return all([result.scheme, result.netloc])
@@ -35,44 +41,35 @@ class NewsArticleGenerator:
         }
 
     async def fetch_url(self, url):
+        """
+        Đọc nội dung từ URL
+        """
         try:
             async with aiohttp.ClientSession(headers=self.headers) as session:
                 async with session.get(url) as response:
-                    return await response.text(), url
+                    return await response.text()
         except Exception as e:
             raise Exception(f"Lỗi khi đọc URL {url}: {str(e)}")
 
-    def extract_content(self, html, url):
+    def extract_content(self, html):
+        """
+        Trích xuất nội dung từ HTML
+        """
         try:
             soup = BeautifulSoup(html, 'html.parser')
             
+            # Loại bỏ các phần không cần thiết
             for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'iframe', 'aside']):
                 tag.decompose()
-
+            
+            # Lấy tiêu đề
             title = ""
             if soup.find('h1'):
                 title = soup.find('h1').get_text().strip()
             elif soup.find('title'):
                 title = soup.find('title').get_text().strip()
-
-            images = []
-            for img in soup.find_all('img'):
-                src = img.get('src', '')
-                if src:
-                    if src.startswith('//'):
-                        src = 'https:' + src
-                    elif src.startswith('/'):
-                        parsed_url = urlparse(url)
-                        src = f"{parsed_url.scheme}://{parsed_url.netloc}{src}"
-                    
-                    if not any(x in src.lower() for x in ['avatar', 'logo', 'icon', 'ads', 'banner']):
-                        alt = img.get('alt', '')
-                        if len(src) > 10 and src.startswith(('http://', 'https://')):
-                            images.append({
-                                'src': src,
-                                'alt': alt
-                            })
-
+            
+            # Lấy nội dung chính
             article_tags = soup.find_all(['article', 'main', 'div'], class_=['content', 'article', 'post'])
             content = ""
             
@@ -81,31 +78,43 @@ class NewsArticleGenerator:
                     paragraphs = tag.find_all('p')
                     content += ' '.join([p.get_text().strip() for p in paragraphs])
             else:
+                # Nếu không tìm thấy thẻ article, lấy tất cả thẻ p
                 paragraphs = soup.find_all('p')
                 content = ' '.join([p.get_text().strip() for p in paragraphs])
-
+            
             return {
                 'title': title,
-                'content': content,
-                'images': images[:5],
-                'url': url
+                'content': content
             }
             
         except Exception as e:
             raise Exception(f"Lỗi khi xử lý HTML: {str(e)}")
 
     async def scrape_articles(self, urls):
+        """
+        Thu thập nội dung từ nhiều URLs
+        """
         articles = []
-        tasks = [self.fetch_url(url) for url in urls if url.strip()]
-        results = await asyncio.gather(*tasks)
-        
-        for html, url in results:
-            content = self.extract_content(html, url)
-            articles.append(content)
+        for url in urls:
+            if url.strip():
+                html = await self.fetch_url(url)
+                content = self.extract_content(html)
+                articles.append({
+                    'url': url,
+                    'title': content['title'],
+                    'content': content['content']
+                })
         return articles
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        reraise=True
+    )
     async def call_gemini_api(self, prompt):
+        """
+        Gọi Gemini API với retry
+        """
         try:
             response = self.model.generate_content(prompt)
             return response.text
@@ -117,12 +126,16 @@ class NewsArticleGenerator:
             raise e
 
     async def generate_article(self, articles):
+        """
+        Tạo bài báo từ nhiều nguồn
+        """
         try:
+            # Tổng hợp nội dung từ các bài báo
             combined_content = "\n\n---\n\n".join(
-                [f"Tiêu đề: {a['title']}\nNội dung: {a['content']}\nHình ảnh: {', '.join([img['alt'] for img in a['images']])}" 
-                 for a in articles]
+                [f"Tiêu đề: {a['title']}\nNội dung: {a['content']}" for a in articles]
             )
 
+            # Prompt để phân tích và tổng hợp thành bài báo mới
             analysis_prompt = f"""
             Phân tích và tổng hợp thành một bài báo mới từ các nguồn sau:
 
@@ -158,62 +171,71 @@ class NewsArticleGenerator:
                - Tránh từ ngữ cảm xúc, thiên kiến
                - Chọn lọc từ ngữ phù hợp văn phong
 
-            5. Xử lý hình ảnh:
-               - Chọn tối đa 5 hình ảnh phù hợp
-               - Sắp xếp theo thứ tự quan trọng
-               - Viết chú thích cho mỗi hình
-               - Đảm bảo tính liên quan và chất lượng
-
             Format phản hồi:
             TITLE: [tiêu đề bài báo]
             ARTICLE: [nội dung bài báo]
-            IMAGES: [danh sách index hình ảnh được chọn và chú thích mới]
             """
 
+            # Gọi API để tạo bài báo
             result = await self.call_gemini_api(analysis_prompt)
             
-            title = result.split('TITLE:')[1].split('ARTICLE:')[0].strip()
-            content = result.split('ARTICLE:')[1].split('IMAGES:')[0].strip()
-            image_selections = result.split('IMAGES:')[1].strip().split('\n')
+            try:
+                title = result.split('TITLE:')[1].split('ARTICLE:')[0].strip()
+                content = result.split('ARTICLE:')[1].strip()
+                
+                # Kiểm tra độ dài tiêu đề
+                if len(title.split()) > 15:
+                    optimize_title_prompt = f"""
+                    Tối ưu tiêu đề sau để ngắn gọn hơn (tối đa 15 từ) nhưng vẫn giữ được ý chính:
+                    {title}
 
-            selected_images = []
-            all_images = []
-            for article in articles:
-                all_images.extend(article['images'])
+                    Yêu cầu:
+                    - Rút gọn nhưng không mất ý nghĩa
+                    - Vẫn phải thu hút, ấn tượng
+                    - Dùng từ ngữ chính xác, súc tích
+                    - Phù hợp phong cách báo chí
 
-            for selection in image_selections:
-                if ':' in selection:
-                    idx, caption = selection.split(':', 1)
-                    try:
-                        idx = int(idx.strip())
-                        if 0 <= idx < len(all_images):
-                            image = all_images[idx].copy()
-                            image['caption'] = caption.strip()
-                            selected_images.append(image)
-                    except ValueError:
-                        continue
+                    Format: TITLE: [tiêu đề tối ưu]
+                    """
+                    title_result = await self.call_gemini_api(optimize_title_prompt)
+                    title = title_result.split('TITLE:')[1].strip()
+                
+                # Kiểm tra độ dài nội dung
+                word_count = len(content.split())
+                if word_count < 800:
+                    expand_prompt = f"""
+                    Mở rộng nội dung bài báo sau để đạt 800-1000 từ.
+                    Thêm chi tiết, phân tích sâu hơn nhưng vẫn giữ được tính mạch lạc và phong cách ban đầu.
 
-            return {
-                'title': title,
-                'content': content,
-                'images': selected_images[:5],
-                'word_count': len(content.split()),
-                'sources': [a['url'] for a in articles]
-            }
+                    Bài báo hiện tại:
+                    {content}
+                    """
+                    content = await self.call_gemini_api(expand_prompt)
+                
+                return {
+                    'title': title,
+                    'content': content,
+                    'word_count': len(content.split()),
+                    'sources': [a['url'] for a in articles]
+                }
+                
+            except Exception as e:
+                raise Exception(f"Lỗi khi xử lý kết quả: {str(e)}")
+            
         except Exception as e:
             raise Exception(f"Lỗi khi tạo bài báo: {str(e)}")
 
 def main():
     st.set_page_config(
-        page_title="Tổng Hợp Tin Tức",
+        page_title="Tổng Hợp Tin Tức", 
         page_icon="📰",
         layout="wide"
     )
     
     st.title("📰 Ứng Dụng Tổng Hợp Tin Tức")
     st.markdown("""
-    Ứng dụng tổng hợp và viết lại nội dung từ nhiều bài báo thành một bài báo mới,
-    kèm theo hình ảnh minh họa.
+    Ứng dụng này giúp tổng hợp và viết lại nội dung từ nhiều bài báo thành một bài báo mới, 
+    đảm bảo tính chuyên nghiệp và chất lượng.
     """)
     st.markdown("---")
 
@@ -223,6 +245,7 @@ def main():
     with st.container():
         st.subheader("🔗 Nhập URLs Bài Báo")
         
+        # Tạo 3 cột để nhập URL
         cols = st.columns(3)
         urls = []
         for i, col in enumerate(cols, 1):
@@ -234,7 +257,9 @@ def main():
                 )
                 urls.append(url)
         
+        # Nút tạo bài báo
         if st.button("Tạo Bài Báo", type="primary"):
+            # Kiểm tra URLs
             valid_urls = [url for url in urls if url.strip()]
             if len(valid_urls) == 0:
                 st.warning("⚠️ Vui lòng nhập ít nhất một URL!")
@@ -245,11 +270,13 @@ def main():
                 st.error(f"❌ URL không hợp lệ: {', '.join(invalid_urls)}")
                 return
             
+            # Hiển thị thanh tiến trình
             progress = st.progress(0)
             status = st.empty()
             
             try:
                 with st.spinner("Đang xử lý..."):
+                    # Thu thập nội dung
                     status.text("Đang đọc nội dung từ các URLs...")
                     progress.progress(25)
                     
@@ -261,6 +288,7 @@ def main():
                         st.error("❌ Không thể đọc nội dung từ các URLs!")
                         return
                     
+                    # Tạo bài báo
                     status.text("Đang tổng hợp và viết bài...")
                     progress.progress(50)
                     
@@ -272,30 +300,12 @@ def main():
                         progress.progress(100)
                         status.empty()
                         
+                        # Hiển thị kết quả
                         st.success(f"✅ Đã tạo bài báo thành công! ({result['word_count']} từ)")
                         
                         st.markdown(f"## 📌 {result['title']}")
-                        
-                        if result['images']:
-                            st.image(
-                                result['images'][0]['src'],
-                                caption=result['images'][0].get('caption', ''),
-                                use_column_width=True
-                            )
-                        
                         st.markdown("### 📄 Nội dung")
                         st.write(result['content'])
-                        
-                        if len(result['images']) > 1:
-                            st.markdown("### 🖼️ Hình ảnh liên quan")
-                            cols = st.columns(2)
-                            for i, img in enumerate(result['images'][1:], 1):
-                                with cols[i % 2]:
-                                    st.image(
-                                        img['src'],
-                                        caption=img.get('caption', ''),
-                                        use_column_width=True
-                                    )
                         
                         with st.expander("🔍 Xem nguồn bài viết"):
                             for i, url in enumerate(result['sources'], 1):
