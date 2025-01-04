@@ -6,6 +6,9 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 import time
 from tenacity import retry, stop_after_attempt, wait_exponential
+import base64
+from io import BytesIO
+from PIL import Image
 
 def check_api_key():
     """
@@ -51,9 +54,22 @@ class NewsArticleGenerator:
         except Exception as e:
             raise Exception(f"Lỗi khi đọc URL {url}: {str(e)}")
 
+    async def fetch_image(self, url):
+        """
+        Tải ảnh từ URL
+        """
+        try:
+            async with aiohttp.ClientSession(headers=self.headers) as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        return await response.read()
+                    return None
+        except:
+            return None
+
     def extract_content(self, html):
         """
-        Trích xuất nội dung từ HTML
+        Trích xuất nội dung và hình ảnh từ HTML
         """
         try:
             soup = BeautifulSoup(html, 'html.parser')
@@ -78,13 +94,24 @@ class NewsArticleGenerator:
                     paragraphs = tag.find_all('p')
                     content += ' '.join([p.get_text().strip() for p in paragraphs])
             else:
-                # Nếu không tìm thấy thẻ article, lấy tất cả thẻ p
                 paragraphs = soup.find_all('p')
                 content = ' '.join([p.get_text().strip() for p in paragraphs])
+
+            # Lấy hình ảnh
+            images = []
+            for img in soup.find_all('img'):
+                src = img.get('src', '')
+                if src and src.startswith('http'):
+                    alt = img.get('alt', '')
+                    images.append({
+                        'url': src,
+                        'alt': alt
+                    })
             
             return {
                 'title': title,
-                'content': content
+                'content': content,
+                'images': images[:3]  # Giới hạn 3 ảnh cho mỗi bài
             }
             
         except Exception as e:
@@ -99,10 +126,22 @@ class NewsArticleGenerator:
             if url.strip():
                 html = await self.fetch_url(url)
                 content = self.extract_content(html)
+                
+                # Tải các hình ảnh
+                images = []
+                for img in content['images']:
+                    img_data = await self.fetch_image(img['url'])
+                    if img_data:
+                        images.append({
+                            'data': img_data,
+                            'alt': img['alt']
+                        })
+                
                 articles.append({
                     'url': url,
                     'title': content['title'],
-                    'content': content['content']
+                    'content': content['content'],
+                    'images': images
                 })
         return articles
 
@@ -156,6 +195,7 @@ class NewsArticleGenerator:
                - Dẫn nguồn và trích dẫn khi cần
                - Phân tích, đánh giá khách quan
                - Kết luận súc tích, đầy đủ
+               - Chèn chú thích cho hình ảnh phù hợp vào vị trí thích hợp trong bài viết
 
             3. Nội dung:
                - Tổng hợp thông tin từ nhiều nguồn
@@ -200,23 +240,17 @@ class NewsArticleGenerator:
                     title_result = await self.call_gemini_api(optimize_title_prompt)
                     title = title_result.split('TITLE:')[1].strip()
                 
-                # Kiểm tra độ dài nội dung
-                word_count = len(content.split())
-                if word_count < 800:
-                    expand_prompt = f"""
-                    Mở rộng nội dung bài báo sau để đạt 800-1000 từ.
-                    Thêm chi tiết, phân tích sâu hơn nhưng vẫn giữ được tính mạch lạc và phong cách ban đầu.
-
-                    Bài báo hiện tại:
-                    {content}
-                    """
-                    content = await self.call_gemini_api(expand_prompt)
+                # Thu thập tất cả hình ảnh từ các bài báo
+                all_images = []
+                for article in articles:
+                    all_images.extend(article['images'])
                 
                 return {
                     'title': title,
                     'content': content,
                     'word_count': len(content.split()),
-                    'sources': [a['url'] for a in articles]
+                    'sources': [a['url'] for a in articles],
+                    'images': all_images
                 }
                 
             except Exception as e:
@@ -277,7 +311,7 @@ def main():
             try:
                 with st.spinner("Đang xử lý..."):
                     # Thu thập nội dung
-                    status.text("Đang đọc nội dung từ các URLs...")
+                    status.text("Đang đọc nội dung và tải hình ảnh từ các URLs...")
                     progress.progress(25)
                     
                     articles = asyncio.run(
@@ -304,12 +338,106 @@ def main():
                         st.success(f"✅ Đã tạo bài báo thành công! ({result['word_count']} từ)")
                         
                         st.markdown(f"## 📌 {result['title']}")
-                        st.markdown("### 📄 Nội dung")
-                        st.write(result['content'])
                         
-                        with st.expander("🔍 Xem nguồn bài viết"):
-                            for i, url in enumerate(result['sources'], 1):
-                                st.write(f"{i}. [{url}]({url})")
+                        # Hiển thị nội dung và hình ảnh
+                        content_parts = result['content'].split('\n\n')
+                        
+                        # Chèn hình ảnh vào giữa các đoạn văn
+                        for i, part in enumerate(content_parts):
+                            st.write(part)
+                            # Chèn ảnh sau mỗi 2-3 đoạn văn
+                            if i % 3 == 1 and result['images'] and len(result['images']) > i//3:
+                                img = result['images'][i//3]
+                                try:
+                                    image = Image.open(BytesIO(img['data']))
+                                    st.image(image, caption=img['alt'], use_column_width=True)
+                                except Exception as e:
+                                    st.warning(f"Không thể hiển thị hình ảnh: {str(e)}")
+                                    # Hiển thị nguồn tham khảo
+                        st.markdown("---")
+                        st.markdown("### 📚 Nguồn Tham Khảo")
+                        for url in result['sources']:
+                            st.markdown(f"- [{url}]({url})")
+                        
+                        # Tạo nút xuất bài viết
+                        st.markdown("---")
+                        st.subheader("💾 Tải Xuống")
+                        
+                        # Tạo nội dung Markdown
+                        markdown_content = f"""# {result['title']}\n\n{result['content']}\n\n---\n### Nguồn Tham Khảo\n"""
+                        for url in result['sources']:
+                            markdown_content += f"- {url}\n"
+                        
+                        # Tạo nội dung HTML
+                        html_content = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="utf-8">
+                            <title>{result['title']}</title>
+                            <style>
+                                body {{
+                                    font-family: Arial, sans-serif;
+                                    line-height: 1.6;
+                                    max-width: 800px;
+                                    margin: 0 auto;
+                                    padding: 20px;
+                                }}
+                                img {{
+                                    max-width: 100%;
+                                    height: auto;
+                                    margin: 20px 0;
+                                }}
+                                .sources {{
+                                    margin-top: 40px;
+                                    padding-top: 20px;
+                                    border-top: 1px solid #ccc;
+                                }}
+                            </style>
+                        </head>
+                        <body>
+                            <h1>{result['title']}</h1>
+                            {result['content'].replace('\n\n', '</p><p>')}
+                            <div class="sources">
+                                <h3>Nguồn Tham Khảo</h3>
+                                <ul>
+                                    {''.join([f'<li><a href="{url}">{url}</a></li>' for url in result['sources']])}
+                                </ul>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        # Nút tải Markdown
+                        with col1:
+                            md_bytes = markdown_content.encode()
+                            md_b64 = base64.b64encode(md_bytes).decode()
+                            md_href = f'data:text/markdown;base64,{md_b64}'
+                            st.download_button(
+                                "📝 Tải Markdown",
+                                markdown_content,
+                                "article.md",
+                                "text/markdown",
+                                use_container_width=True
+                            )
+                        
+                        # Nút tải HTML
+                        with col2:
+                            html_bytes = html_content.encode()
+                            html_b64 = base64.b64encode(html_bytes).decode()
+                            html_href = f'data:text/html;base64,{html_b64}'
+                            st.download_button(
+                                "🌐 Tải HTML",
+                                html_content,
+                                "article.html",
+                                "text/html",
+                                use_container_width=True
+                            )
+                            
+                    else:
+                        st.error("❌ Không thể tạo bài báo!")
                         
             except Exception as e:
                 st.error(f"❌ Có lỗi xảy ra: {str(e)}")
