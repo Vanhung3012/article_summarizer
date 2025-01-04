@@ -83,7 +83,8 @@ class NewsArticleGenerator:
                         return None
                     return await response.read()
                 return None
-        except:
+        except Exception as e:
+            st.warning(f"⚠️ Lỗi khi tải hình ảnh từ {url}: {str(e)}")
             return None
 
     def extract_content(self, html):
@@ -349,10 +350,6 @@ def main():
                     f"URL bài báo {i}",
                     key=f"url{i}",
                     placeholder="https://..."
-                    url = st.text_input(
-                    f"URL bài báo {i}",
-                    key=f"url{i}",
-                    placeholder="https://..."
                 )
                 if url:
                     if not validate_url(url):
@@ -434,3 +431,4 @@ Số từ: {result['word_count']}\n\nNguồn tham khảo:\n""" + "\n".join(f"- {
 
 if __name__ == "__main__":
     main()
+    
