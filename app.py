@@ -232,6 +232,70 @@ def main():
         layout="wide"
     )
     
+    # Thêm CSS cho nút copy và container
+    st.markdown("""
+    <style>
+    .copy-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        padding: 8px 16px;
+        background-color: #0066cc;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: background-color 0.3s;
+    }
+    .copy-button:hover {
+        background-color: #0052a3;
+    }
+    .copy-button svg {
+        width: 16px;
+        height: 16px;
+    }
+    .article-container {
+        position: relative;
+        padding: 20px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        margin: 20px 0;
+        border: 1px solid #e9ecef;
+    }
+    .article-content {
+        margin-top: 10px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Thêm JavaScript cho chức năng copy
+    st.markdown("""
+    <script>
+    function copyArticleContent() {
+        const content = document.querySelector('.article-content').innerText;
+        navigator.clipboard.writeText(content).then(() => {
+            const button = document.querySelector('.copy-button');
+            const originalText = button.innerHTML;
+            button.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                Đã sao chép!
+            `;
+            setTimeout(() => {
+                button.innerHTML = originalText;
+            }, 2000);
+        });
+    }
+    </script>
+    """, unsafe_allow_html=True)
+    
     st.title("📰 Ứng Dụng Tổng Hợp Tin Tức")
     st.markdown("""
     Ứng dụng này giúp tổng hợp và viết lại nội dung từ nhiều bài báo thành một bài báo mới, 
@@ -300,13 +364,26 @@ def main():
                         progress.progress(100)
                         status.empty()
                         
-                        # Hiển thị kết quả
+                        # Hiển thị kết quả với nút copy
                         st.success(f"✅ Đã tạo bài báo thành công! ({result['word_count']} từ)")
+st.markdown(f"## 📌 {result['title']}")
                         
-                        st.markdown(f"## 📌 {result['title']}")
-                        st.markdown("### 📄 Nội dung")
-                        st.write(result['content'])
+                        # Container cho nội dung bài viết với nút copy
+                        st.markdown(f"""
+                        <div class="article-container">
+                            <button class="copy-button" onclick="copyArticleContent()">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                </svg>
+                                Sao chép
+                            </button>
+                            <div class="article-content">
+                                {result['content']}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
                         
+                        # Hiển thị nguồn tham khảo
                         with st.expander("🔍 Xem nguồn bài viết"):
                             for i, url in enumerate(result['sources'], 1):
                                 st.write(f"{i}. [{url}]({url})")
