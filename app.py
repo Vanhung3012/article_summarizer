@@ -366,7 +366,7 @@ def main():
                         
                         # Hiển thị kết quả với nút copy
                         st.success(f"✅ Đã tạo bài báo thành công! ({result['word_count']} từ)")
-st.markdown(f"## 📌 {result['title']}")
+                        st.markdown(f"## 📌 {result['title']}")
                         
                         # Container cho nội dung bài viết với nút copy
                         st.markdown(f"""
